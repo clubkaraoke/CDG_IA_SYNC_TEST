@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -14,24 +15,49 @@ class MVSEPClient:
     """Cliente mínimo para la prueba Parakeet v3 de MVSEP."""
 
     def __init__(self) -> None:
-        self.token = os.getenv("MVSEP_API_TOKEN", "").strip()
-        self.base_url = os.getenv("MVSEP_API_BASE", "https://de.mvsep.com/api").rstrip("/")
+        self.base_url = os.getenv("MVSEP_API_BASE", "https://mvsep.com/api").rstrip("/")
+        self.token_file = Path(os.getenv("MVSEP_TOKEN_FILE", "/runtime/mvsep_token"))
         self.timeout = httpx.Timeout(connect=30.0, read=1200.0, write=1200.0, pool=30.0)
 
-    def ensure_configured(self) -> None:
-        if not self.token:
-            raise MVSEPError("Falta MVSEP_API_TOKEN en el archivo .env")
+    def get_token(self) -> str:
+        env_token = os.getenv("MVSEP_API_TOKEN", "").strip()
+        if env_token:
+            return env_token
+        try:
+            return self.token_file.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return ""
+
+    def is_configured(self) -> bool:
+        return bool(self.get_token())
+
+    def save_token(self, token: str) -> None:
+        token = token.strip()
+        if len(token) < 8:
+            raise MVSEPError("El token parece demasiado corto.")
+        self.token_file.parent.mkdir(parents=True, exist_ok=True)
+        self.token_file.write_text(token + "\n", encoding="utf-8")
+        try:
+            os.chmod(self.token_file, 0o600)
+        except OSError:
+            pass
+
+    def ensure_configured(self) -> str:
+        token = self.get_token()
+        if not token:
+            raise MVSEPError("Falta configurar el API token de MVSEP.")
+        return token
 
     async def create_parakeet_job(self, upload_file: Any) -> dict[str, Any]:
-        self.ensure_configured()
+        token = self.ensure_configured()
         await upload_file.seek(0)
 
         data = {
-            "api_token": self.token,
-            "sep_type": "64",      # Parakeet
-            "add_opt1": "0",       # usar el archivo tal cual (ya es Voces)
-            "add_opt2": "1",       # Parakeet v3
-            "output_format": "0",  # no es relevante para la transcripción, se deja explícito
+            "api_token": token,
+            "sep_type": "64",
+            "add_opt1": "0",
+            "add_opt2": "1",
+            "output_format": "0",
             "is_demo": "0",
         }
         files = {

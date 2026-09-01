@@ -232,6 +232,52 @@ async def result(job_hash: str) -> dict[str, Any]:
     outputs: list[dict[str, Any]] = []
     best_parse: dict[str, Any] | None = None
 
+    # Los modelos de transcripción de MVSEP (Parakeet/Whisper) pueden
+    # devolver TXT/SRT directamente dentro de data.transcription y dejar
+    # data.files vacío. Consumimos primero esa salida inline.
+    transcription = data.get("transcription")
+    if isinstance(transcription, dict):
+        inline_txt = transcription.get("txt")
+        inline_srt = transcription.get("srt")
+
+        if isinstance(inline_srt, str) and inline_srt.strip():
+            parsed = parse_transcription(inline_srt.encode("utf-8"))
+            if isinstance(inline_txt, str) and inline_txt.strip():
+                parsed["raw_text"] = inline_txt.strip()
+            parsed["mvsep_source"] = "data.transcription.srt"
+            best_parse = parsed
+            outputs.append({
+                "name": "transcription.srt",
+                "url": None,
+                "meta": {"source": "data.transcription.srt"},
+                "parsed": parsed,
+            })
+            write_event(
+                "inline_transcription_parsed",
+                job_hash=job_hash,
+                message="Transcripción SRT inline de MVSEP interpretada.",
+                details={
+                    "segments": parsed.get("word_count", 0),
+                    "format": parsed.get("format"),
+                },
+            )
+        elif isinstance(inline_txt, str) and inline_txt.strip():
+            parsed = parse_transcription(inline_txt.encode("utf-8"))
+            parsed["mvsep_source"] = "data.transcription.txt"
+            best_parse = parsed
+            outputs.append({
+                "name": "transcription.txt",
+                "url": None,
+                "meta": {"source": "data.transcription.txt"},
+                "parsed": parsed,
+            })
+            write_event(
+                "inline_transcription_parsed",
+                job_hash=job_hash,
+                message="Transcripción TXT inline de MVSEP interpretada.",
+                details={"format": parsed.get("format")},
+            )
+
     for idx, file_info in enumerate(files):
         if not isinstance(file_info, dict):
             continue

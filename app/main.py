@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import mimetypes
+import time
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .logstore import read_events, write_event
 from .mvsep import MVSEPClient, MVSEPError
 from .parser import parse_transcription
 
@@ -18,16 +20,57 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 
-app = FastAPI(title="CDG IA Sync Test", version="0.2.0")
+app = FastAPI(title="CDG IA Sync Test", version="0.3.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 mvsep = MVSEPClient()
-
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}
+_last_status: dict[str, str] = {}
 
 
 class TokenConfig(BaseModel):
     token: str
+
+
+@app.middleware("http")
+async def diagnostic_request_log(request: Request, call_next):
+    request_id = request.headers.get("x-debug-request-id")
+    is_transcribe = request.method == "POST" and request.url.path.endswith("/api/transcribe")
+    started = time.monotonic()
+    if is_transcribe:
+        write_event(
+            "browser_upload_started",
+            request_id=request_id,
+            message="El navegador inició el envío hacia OVH.",
+            details={
+                "content_length": request.headers.get("content-length"),
+                "content_type": request.headers.get("content-type"),
+            },
+        )
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        if is_transcribe:
+            write_event(
+                "browser_upload_backend_error",
+                level="error",
+                request_id=request_id,
+                message=str(exc),
+                details={"elapsed_s": round(time.monotonic() - started, 3)},
+            )
+        raise
+    if is_transcribe:
+        write_event(
+            "browser_upload_request_finished",
+            level="info" if response.status_code < 400 else "error",
+            request_id=request_id,
+            message=f"OVH terminó la petición HTTP ({response.status_code}).",
+            details={
+                "status_code": response.status_code,
+                "elapsed_s": round(time.monotonic() - started, 3),
+            },
+        )
+    return response
 
 
 @app.get("/")
@@ -39,6 +82,7 @@ async def home() -> FileResponse:
 async def health() -> dict[str, Any]:
     return {
         "ok": True,
+        "version": "0.3.0",
         "mvsep_configured": mvsep.is_configured(),
         "mvsep_api_base": mvsep.base_url,
         "model": "Parakeet v3",
@@ -48,33 +92,88 @@ async def health() -> dict[str, Any]:
     }
 
 
+@app.get("/api/logs")
+async def logs(limit: int = 200) -> dict[str, Any]:
+    return {"ok": True, "events": read_events(limit)}
+
+
+@app.get("/api/queue")
+async def queue_info() -> dict[str, Any]:
+    try:
+        payload = await mvsep.get_queue_info()
+        return {"ok": True, "mvsep": payload}
+    except Exception as exc:
+        write_event("mvsep_queue_info_error", level="error", message=str(exc))
+        raise HTTPException(502, f"No se pudo consultar la cola de MVSEP: {exc}") from exc
+
+
 @app.post("/api/config/token")
 async def configure_token(config: TokenConfig) -> dict[str, Any]:
     try:
         mvsep.save_token(config.token)
     except MVSEPError as exc:
         raise HTTPException(400, str(exc)) from exc
+    write_event("mvsep_token_configured", message="Token de MVSEP configurado en OVH.")
     return {"ok": True, "mvsep_configured": True}
 
 
 @app.post("/api/transcribe")
-async def transcribe(audio: UploadFile = File(...)) -> dict[str, Any]:
-    suffix = Path(audio.filename or "").suffix.lower()
+async def transcribe(request: Request, audio: UploadFile = File(...)) -> dict[str, Any]:
+    request_id = request.headers.get("x-debug-request-id")
+    filename = audio.filename or "audio"
+    suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
+        write_event(
+            "upload_rejected",
+            level="error",
+            request_id=request_id,
+            filename=filename,
+            message=f"Formato no permitido: {suffix or 'sin extensión'}",
+        )
         raise HTTPException(400, f"Formato no permitido: {suffix or 'sin extensión'}")
 
+    write_event(
+        "ovh_file_ready",
+        request_id=request_id,
+        filename=filename,
+        message="OVH recibió el archivo completo. Iniciando envío a MVSEP.",
+        details={"content_type": audio.content_type},
+    )
+
+    started = time.monotonic()
     try:
         payload = await mvsep.create_parakeet_job(audio)
     except MVSEPError as exc:
+        write_event(
+            "mvsep_create_error",
+            level="error",
+            request_id=request_id,
+            filename=filename,
+            message=str(exc),
+            details={"elapsed_s": round(time.monotonic() - started, 3)},
+        )
         raise HTTPException(502, str(exc)) from exc
     except Exception as exc:
+        write_event(
+            "mvsep_create_error",
+            level="error",
+            request_id=request_id,
+            filename=filename,
+            message=str(exc),
+            details={"elapsed_s": round(time.monotonic() - started, 3)},
+        )
         raise HTTPException(502, f"No se pudo crear el trabajo en MVSEP: {exc}") from exc
 
-    return {
-        "ok": True,
-        "hash": payload["data"]["hash"],
-        "mvsep": payload,
-    }
+    job_hash = payload["data"]["hash"]
+    write_event(
+        "mvsep_job_created",
+        request_id=request_id,
+        job_hash=job_hash,
+        filename=filename,
+        message="MVSEP aceptó el trabajo y devolvió hash.",
+        details={"elapsed_s": round(time.monotonic() - started, 3)},
+    )
+    return {"ok": True, "hash": job_hash, "mvsep": payload}
 
 
 @app.get("/api/status/{job_hash}")
@@ -82,7 +181,29 @@ async def status(job_hash: str) -> dict[str, Any]:
     try:
         payload = await mvsep.get_status(job_hash)
     except Exception as exc:
+        write_event(
+            "mvsep_status_error",
+            level="error",
+            job_hash=job_hash,
+            message=str(exc),
+        )
         raise HTTPException(502, f"No se pudo consultar MVSEP: {exc}") from exc
+
+    status_value = str(payload.get("status"))
+    data = payload.get("data") or {}
+    signature = f"{status_value}:{data.get('current_order')}:{data.get('queue_count')}"
+    if _last_status.get(job_hash) != signature:
+        _last_status[job_hash] = signature
+        write_event(
+            "mvsep_status_changed",
+            job_hash=job_hash,
+            message=f"Estado MVSEP: {status_value}",
+            details={
+                "current_order": data.get("current_order"),
+                "queue_count": data.get("queue_count"),
+                "message": data.get("message"),
+            },
+        )
     return payload
 
 
@@ -100,6 +221,7 @@ async def result(job_hash: str) -> dict[str, Any]:
     try:
         payload = await mvsep.get_status(job_hash)
     except Exception as exc:
+        write_event("result_status_error", level="error", job_hash=job_hash, message=str(exc))
         raise HTTPException(502, f"No se pudo consultar MVSEP: {exc}") from exc
 
     if payload.get("status") != "done":
@@ -132,10 +254,33 @@ async def result(job_hash: str) -> dict[str, Any]:
                     entry["parsed"] = parsed
                     if best_parse is None or parsed["word_count"] > best_parse["word_count"]:
                         best_parse = parsed
+                write_event(
+                    "result_file_downloaded",
+                    job_hash=job_hash,
+                    message=f"Resultado descargado: {name}",
+                    details={"bytes": len(raw), "content_type": content_type},
+                )
             except Exception as exc:
                 entry["download_error"] = str(exc)
+                write_event(
+                    "result_file_error",
+                    level="error",
+                    job_hash=job_hash,
+                    message=f"{name}: {exc}",
+                )
 
         outputs.append(entry)
+
+    write_event(
+        "result_ready",
+        job_hash=job_hash,
+        message="Resultado listo para revisión.",
+        details={
+            "output_files": len(outputs),
+            "word_count": (best_parse or {}).get("word_count", 0),
+            "parsed_format": (best_parse or {}).get("format"),
+        },
+    )
 
     return {
         "ok": True,

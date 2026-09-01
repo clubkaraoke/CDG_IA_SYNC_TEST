@@ -46,6 +46,23 @@
       </div>
     </section>
 
+    <section id="diagnosticCard" class="card diagnostic-card">
+      <div class="grow">
+        <div class="result-head">
+          <div>
+            <span class="eyebrow">DIAGNÓSTICO</span>
+            <h2>Historial de actividad</h2>
+          </div>
+          <div class="diag-actions">
+            <span id="planBadge" class="badge">Plan: consultando…</span>
+            <button id="refreshLogsBtn" class="secondary">Actualizar logs</button>
+          </div>
+        </div>
+        <p class="hint">Se guarda en OVH cada etapa: subida, aceptación de MVSEP, cola/posición, procesamiento, resultado y errores. Nunca se registra tu token.</p>
+        <div id="logsList" class="logs-list"><div class="empty">Sin eventos todavía.</div></div>
+      </div>
+    </section>
+
     <section id="resultCard" class="card hidden result-card">
       <div class="result-head">
         <div>

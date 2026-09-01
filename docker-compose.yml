@@ -5,5 +5,9 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      MVSEP_TOKEN_FILE: /runtime/mvsep_token
+    volumes:
+      - ./runtime:/runtime
     ports:
-      - "8091:8000"
+      - "127.0.0.1:8091:8000"

@@ -115,9 +115,14 @@ function renderResult(r) {
   plainText.textContent = rawText || "No se encontró salida textual automáticamente.";
   rawJson.textContent = JSON.stringify(r, null, 2);
   lastText = rawText;
-  resultSummary.textContent = words.length
-    ? `${words.length} elementos temporizados · formato ${parsed.format}`
-    : "Resultado recibido · necesitamos identificar el formato exacto";
+  if (words.length) {
+    const unit = parsed.format === "subtitle_segments" ? "segmentos temporizados" : "elementos temporizados";
+    resultSummary.textContent = `${words.length} ${unit} · formato ${parsed.format}`;
+    const wordsTab = document.querySelector('[data-target="wordsPanel"]');
+    if (wordsTab && parsed.format === "subtitle_segments") wordsTab.textContent = "Segmentos + tiempos";
+  } else {
+    resultSummary.textContent = "Resultado recibido · necesitamos identificar el formato exacto";
+  }
   resultCard.classList.remove("hidden");
 }
 

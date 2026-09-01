@@ -1,0 +1,25 @@
+name: Validate Qwen Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "gpu_worker/**"
+      - ".github/workflows/validate-qwen-worker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: python3 -m py_compile gpu_worker/app.py
+      - name: Validate Docker references
+        run: |
+          grep -q 'Qwen/Qwen3-ASR-1.7B' gpu_worker/app.py
+          grep -q 'Qwen/Qwen3-ForcedAligner-0.6B' gpu_worker/app.py
+          grep -q 'pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime' gpu_worker/Dockerfile

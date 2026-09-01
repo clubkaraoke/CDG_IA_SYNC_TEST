@@ -11,69 +11,96 @@
     <header>
       <div>
         <span class="eyebrow">PRUEBA AISLADA · NO PRODUCCIÓN</span>
-        <h1>CDG · Letra + Timing IA</h1>
-        <p>Sube una pista <strong>(Voces)</strong>. La prueba usa Parakeet v3 en MVSEP y muestra tanto el resultado interpretado como la respuesta cruda.</p>
+        <h1>CDG · Comparador IA</h1>
+        <p>Misma pista de <strong>voces</strong>, dos caminos: Parakeet/MVSEP para segmentos y Qwen3 + Forced Aligner para intentar timings palabra por palabra.</p>
       </div>
-      <div id="apiBadge" class="badge">Comprobando API…</div>
+      <div class="header-badges">
+        <div id="apiBadge" class="badge">MVSEP…</div>
+        <div id="qwenBadge" class="badge">Qwen GPU…</div>
+      </div>
     </header>
 
     <section id="configCard" class="card hidden">
       <div class="step">0</div>
       <div class="grow">
         <h2>Configurar API de MVSEP</h2>
-        <p class="hint">El token se guarda únicamente en el OVH. No se sube a GitHub ni vuelve a mostrarse.</p>
-        <input id="tokenInput" type="password" autocomplete="off" placeholder="Pega aquí tu API token de MVSEP" />
+        <p class="hint">El token se guarda únicamente en el OVH.</p>
+        <input id="tokenInput" type="password" autocomplete="off" placeholder="API token de MVSEP" />
       </div>
       <button id="saveTokenBtn">Guardar API</button>
+    </section>
+
+    <section id="qwenConfigCard" class="card hidden">
+      <div class="step">GPU</div>
+      <div class="grow">
+        <h2>Conectar Qwen GPU Worker</h2>
+        <p class="hint">El OVH coordina; Qwen3-ASR 1.7B y ForcedAligner 0.6B corren en una GPU externa.</p>
+        <div class="config-grid">
+          <input id="qwenEndpointInput" type="url" autocomplete="off" placeholder="https://tu-worker-gpu..." />
+          <input id="qwenTokenInput" type="password" autocomplete="off" placeholder="Token privado del worker" />
+        </div>
+      </div>
+      <button id="saveQwenBtn">Conectar GPU</button>
     </section>
 
     <section class="card upload-card">
       <div class="step">1</div>
       <div class="grow">
-        <h2>Subir pista de voces</h2>
+        <h2>Seleccionar pista de voces</h2>
         <input id="audio" type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.aac,.ogg" />
-        <p class="hint">Configuración fija de esta prueba: Parakeet v3 · usar audio tal cual.</p>
+        <div class="lyrics-tools">
+          <button id="inspectLyricsBtn" class="secondary small">Buscar letra embebida</button>
+          <span id="lyricsBadge" class="hint">Letra maestra: todavía no revisada</span>
+        </div>
+        <textarea id="masterLyrics" rows="7" placeholder="Letra maestra opcional. Si está vacía, Qwen3-ASR intentará transcribirla. Si el archivo trae letra embebida, podemos usar esa letra y mandar directamente al Forced Aligner."></textarea>
       </div>
-      <button id="startBtn">✨ Generar letra + timing</button>
+      <div class="engine-actions">
+        <button id="startBtn">Parakeet v3 · MVSEP</button>
+        <button id="qwenBtn" class="qwen">Qwen3 + Aligner</button>
+      </div>
     </section>
 
     <section id="progressCard" class="card hidden">
       <div class="step">2</div>
       <div class="grow">
-        <h2 id="statusTitle">Enviando a MVSEP…</h2>
+        <h2 id="statusTitle">Procesando…</h2>
         <div class="progress"><div id="progressBar"></div></div>
         <div id="statusMeta" class="hint"></div>
       </div>
     </section>
 
-    <section id="diagnosticCard" class="card diagnostic-card">
-      <div class="grow">
-        <div class="result-head">
-          <div>
-            <span class="eyebrow">DIAGNÓSTICO</span>
-            <h2>Historial de actividad</h2>
-          </div>
-          <div class="diag-actions">
-            <span id="planBadge" class="badge">Plan: consultando…</span>
-            <button id="refreshLogsBtn" class="secondary">Actualizar logs</button>
-          </div>
+    <section id="qwenResultCard" class="card hidden result-card">
+      <div class="result-head">
+        <div>
+          <span class="eyebrow">QWEN3</span>
+          <h2 id="qwenSummary">Resultado Qwen</h2>
+          <div id="qwenMeta" class="hint"></div>
         </div>
-        <p class="hint">Se guarda en OVH cada etapa: subida, aceptación de MVSEP, cola/posición, procesamiento, resultado y errores. Nunca se registra tu token.</p>
-        <div id="logsList" class="logs-list"><div class="empty">Sin eventos todavía.</div></div>
+        <button id="copyQwenBtn" class="secondary">Copiar JSON</button>
       </div>
+      <div class="panel active">
+        <table>
+          <thead><tr><th>#</th><th>Inicio</th><th>Fin</th><th>Palabra</th></tr></thead>
+          <tbody id="qwenWordsBody"></tbody>
+        </table>
+      </div>
+      <details>
+        <summary>Respuesta Qwen cruda</summary>
+        <pre id="qwenRaw"></pre>
+      </details>
     </section>
 
     <section id="resultCard" class="card hidden result-card">
       <div class="result-head">
         <div>
-          <span class="eyebrow">RESULTADO</span>
+          <span class="eyebrow">PARAKEET / MVSEP</span>
           <h2 id="resultSummary">Transcripción</h2>
         </div>
         <button id="copyBtn" class="secondary">Copiar texto</button>
       </div>
 
       <div class="tabs">
-        <button class="tab active" data-target="wordsPanel">Palabras + tiempos</button>
+        <button class="tab active" data-target="wordsPanel">Segmentos + tiempos</button>
         <button class="tab" data-target="textPanel">Letra</button>
         <button class="tab" data-target="rawPanel">MVSEP crudo</button>
       </div>
@@ -86,6 +113,23 @@
       </div>
       <div id="textPanel" class="panel"><pre id="plainText"></pre></div>
       <div id="rawPanel" class="panel"><pre id="rawJson"></pre></div>
+    </section>
+
+    <section id="diagnosticCard" class="card diagnostic-card">
+      <div class="grow">
+        <div class="result-head">
+          <div>
+            <span class="eyebrow">DIAGNÓSTICO</span>
+            <h2>Historial de actividad</h2>
+          </div>
+          <div class="diag-actions">
+            <span id="planBadge" class="badge">Plan MVSEP…</span>
+            <button id="refreshLogsBtn" class="secondary">Actualizar logs</button>
+          </div>
+        </div>
+        <p class="hint">Subida, cola, procesamiento, worker GPU, resultados y errores. No se registran tokens.</p>
+        <div id="logsList" class="logs-list"><div class="empty">Sin eventos todavía.</div></div>
+      </div>
     </section>
 
     <section id="errorCard" class="card error hidden">

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CDG IA Sync Test</title>
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="static/styles.css" />
 </head>
 <body>
   <main class="shell">
@@ -16,6 +16,16 @@
       </div>
       <div id="apiBadge" class="badge">Comprobando API…</div>
     </header>
+
+    <section id="configCard" class="card hidden">
+      <div class="step">0</div>
+      <div class="grow">
+        <h2>Configurar API de MVSEP</h2>
+        <p class="hint">El token se guarda únicamente en el OVH. No se sube a GitHub ni vuelve a mostrarse.</p>
+        <input id="tokenInput" type="password" autocomplete="off" placeholder="Pega aquí tu API token de MVSEP" />
+      </div>
+      <button id="saveTokenBtn">Guardar API</button>
+    </section>
 
     <section class="card upload-card">
       <div class="step">1</div>
@@ -66,6 +76,6 @@
       <span id="errorText"></span>
     </section>
   </main>
-  <script src="/static/app.js"></script>
+  <script src="static/app.js"></script>
 </body>
 </html>

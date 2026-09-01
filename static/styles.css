@@ -44,3 +44,18 @@ pre { white-space: pre-wrap; word-break: break-word; background: #10131a; border
   .upload-card button { width: 100%; }
   .step { display: none; }
 }
+
+.diagnostic-card { display: block; }
+.diag-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.logs-list { margin-top: 14px; border: 1px solid #282d3a; border-radius: 10px; overflow: auto; max-height: 310px; background: #10131a; }
+.log-row { display: grid; grid-template-columns: 78px 190px 1fr; gap: 10px; padding: 9px 11px; border-bottom: 1px solid #232836; font-size: 12px; }
+.log-row:last-child { border-bottom: 0; }
+.log-time { color: #8790a5; font-variant-numeric: tabular-nums; }
+.log-event { color: #bda8ff; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.log-message { color: #cfd4df; }
+.log-error { background: rgba(120, 35, 50, .16); }
+.log-error .log-event, .log-error .log-message { color: #ff9ca8; }
+@media (max-width: 760px) {
+  .log-row { grid-template-columns: 68px 1fr; }
+  .log-message { grid-column: 1 / -1; }
+}

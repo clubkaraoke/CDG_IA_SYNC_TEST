@@ -59,3 +59,20 @@ pre { white-space: pre-wrap; word-break: break-word; background: #10131a; border
   .log-row { grid-template-columns: 68px 1fr; }
   .log-message { grid-column: 1 / -1; }
 }
+
+.header-badges { display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
+.config-grid { display:grid; grid-template-columns:1.4fr 1fr; gap:10px; }
+.config-grid input, textarea { width:100%; border:1px solid #323848; background:#10131a; color:#eef0f6; border-radius:10px; padding:11px 12px; }
+textarea { resize:vertical; margin-top:12px; font-family:inherit; line-height:1.45; }
+.lyrics-tools { display:flex; gap:10px; align-items:center; margin-top:12px; flex-wrap:wrap; }
+button.small { padding:8px 11px; font-size:12px; }
+.engine-actions { display:flex; flex-direction:column; gap:10px; min-width:210px; }
+button.qwen { background:#4d6cff; }
+.good-text { color:#79e0b5 !important; }
+details { margin-top:14px; }
+summary { cursor:pointer; color:#aeb4c5; }
+@media (max-width:760px) {
+  .header-badges { align-items:flex-start; }
+  .config-grid { grid-template-columns:1fr; }
+  .engine-actions { width:100%; min-width:0; }
+}

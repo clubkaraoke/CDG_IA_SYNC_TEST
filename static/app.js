@@ -1,22 +1,41 @@
 const $ = (id) => document.getElementById(id);
 const audio = $("audio");
 const startBtn = $("startBtn");
+const qwenBtn = $("qwenBtn");
 const progressCard = $("progressCard");
 const resultCard = $("resultCard");
+const qwenResultCard = $("qwenResultCard");
 const errorCard = $("errorCard");
 const errorText = $("errorText");
 const statusTitle = $("statusTitle");
 const statusMeta = $("statusMeta");
 const progressBar = $("progressBar");
 const wordsBody = $("wordsBody");
+const qwenWordsBody = $("qwenWordsBody");
 const plainText = $("plainText");
 const rawJson = $("rawJson");
+const qwenRaw = $("qwenRaw");
 const resultSummary = $("resultSummary");
+const qwenSummary = $("qwenSummary");
+const qwenMeta = $("qwenMeta");
 const copyBtn = $("copyBtn");
+const copyQwenBtn = $("copyQwenBtn");
 const configCard = $("configCard");
 const tokenInput = $("tokenInput");
 const saveTokenBtn = $("saveTokenBtn");
+const qwenConfigCard = $("qwenConfigCard");
+const qwenEndpointInput = $("qwenEndpointInput");
+const qwenTokenInput = $("qwenTokenInput");
+const saveQwenBtn = $("saveQwenBtn");
+const inspectLyricsBtn = $("inspectLyricsBtn");
+const masterLyrics = $("masterLyrics");
+const lyricsBadge = $("lyricsBadge");
+const logsList = $("logsList");
+const refreshLogsBtn = $("refreshLogsBtn");
+const planBadge = $("planBadge");
+
 let lastText = "";
+let lastQwen = "";
 
 function showError(message) {
   errorText.textContent = message;
@@ -33,18 +52,33 @@ async function apiJson(url, options) {
   return data;
 }
 
+function escapeHtml(s) {
+  return String(s).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+}
+function fmt(v) {
+  if (v === null || v === undefined) return "—";
+  return Number(v).toFixed(3) + " s";
+}
+
 async function health() {
   try {
     const h = await apiJson("api/health");
-    const badge = $("apiBadge");
-    badge.textContent = h.mvsep_configured ? "MVSEP configurado ✓" : "Falta API token";
-    badge.classList.toggle("ok", h.mvsep_configured);
+    const apiBadge = $("apiBadge");
+    apiBadge.textContent = h.mvsep_configured ? "MVSEP configurado ✓" : "Falta MVSEP";
+    apiBadge.classList.toggle("ok", h.mvsep_configured);
     configCard.classList.toggle("hidden", h.mvsep_configured);
     startBtn.disabled = !h.mvsep_configured;
+
+    const qBadge = $("qwenBadge");
+    qBadge.textContent = h.qwen_configured ? "Qwen GPU configurado ✓" : "Qwen GPU pendiente";
+    qBadge.classList.toggle("ok", h.qwen_configured);
+    qwenConfigCard.classList.toggle("hidden", h.qwen_configured);
+    qwenBtn.disabled = !h.qwen_configured;
     return h;
   } catch {
     $("apiBadge").textContent = "Backend no disponible";
     startBtn.disabled = true;
+    qwenBtn.disabled = true;
   }
 }
 
@@ -61,11 +95,55 @@ saveTokenBtn.addEventListener("click", async () => {
     });
     tokenInput.value = "";
     await health();
+  } catch (e) { showError(e.message || String(e)); }
+  finally { saveTokenBtn.disabled = false; }
+});
+
+saveQwenBtn.addEventListener("click", async () => {
+  clearError();
+  const endpoint = qwenEndpointInput.value.trim();
+  if (!endpoint) return showError("Falta el endpoint del Qwen GPU Worker.");
+  saveQwenBtn.disabled = true;
+  try {
+    await apiJson("api/qwen/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint, token: qwenTokenInput.value.trim() })
+    });
+    qwenTokenInput.value = "";
+    await health();
+    try {
+      const h = await apiJson("api/qwen/health");
+      $("qwenBadge").textContent = `Qwen GPU ✓ · ${h.worker.device || "CUDA"}`;
+    } catch (e) {
+      showError("Endpoint guardado, pero el worker todavía no responde: " + e.message);
+    }
+  } catch (e) { showError(e.message || String(e)); }
+  finally { saveQwenBtn.disabled = false; }
+});
+
+inspectLyricsBtn.addEventListener("click", async () => {
+  clearError();
+  if (!audio.files.length) return showError("Selecciona primero una pista de voces.");
+  inspectLyricsBtn.disabled = true;
+  lyricsBadge.textContent = "Buscando letra en metadatos…";
+  try {
+    const form = new FormData();
+    form.append("audio", audio.files[0]);
+    const r = await apiJson("api/inspect-audio", { method: "POST", body: form });
+    if (r.found) {
+      masterLyrics.value = r.lyrics || "";
+      lyricsBadge.textContent = `✓ Letra embebida encontrada (${r.source})`;
+      lyricsBadge.classList.add("good-text");
+    } else {
+      lyricsBadge.textContent = "No hay letra embebida · Qwen ASR deberá transcribir";
+      lyricsBadge.classList.remove("good-text");
+    }
+    await refreshDiagnostics();
   } catch (e) {
+    lyricsBadge.textContent = "No se pudo leer la letra embebida";
     showError(e.message || String(e));
-  } finally {
-    saveTokenBtn.disabled = false;
-  }
+  } finally { inspectLyricsBtn.disabled = false; }
 });
 
 function setStatus(status, data) {
@@ -74,7 +152,7 @@ function setStatus(status, data) {
     processing: "Parakeet está transcribiendo…",
     distributing: "Distribuyendo trabajo…",
     merging: "Uniendo resultados…",
-    done: "IA completada ✓",
+    done: "Parakeet completado ✓",
     failed: "MVSEP reportó un fallo",
   };
   statusTitle.textContent = labels[status] || `Estado: ${status}`;
@@ -94,11 +172,6 @@ function setStatus(status, data) {
   }
 }
 
-function fmt(v) {
-  if (v === null || v === undefined) return "—";
-  return Number(v).toFixed(3) + " s";
-}
-
 function renderResult(r) {
   const parsed = r.best_parse || {};
   const words = parsed.words || [];
@@ -110,29 +183,37 @@ function renderResult(r) {
     wordsBody.appendChild(tr);
   });
   if (!words.length) {
-    wordsBody.innerHTML = `<tr><td colspan="5" class="empty">Todavía no reconocemos automáticamente el formato de timestamps. Mira “Letra” y “MVSEP crudo”; esa primera prueba nos dirá cómo adaptar el parser.</td></tr>`;
+    wordsBody.innerHTML = '<tr><td colspan="5" class="empty">Sin timings reconocidos.</td></tr>';
   }
   plainText.textContent = rawText || "No se encontró salida textual automáticamente.";
   rawJson.textContent = JSON.stringify(r, null, 2);
   lastText = rawText;
-  if (words.length) {
-    const unit = parsed.format === "subtitle_segments" ? "segmentos temporizados" : "elementos temporizados";
-    resultSummary.textContent = `${words.length} ${unit} · formato ${parsed.format}`;
-    const wordsTab = document.querySelector('[data-target="wordsPanel"]');
-    if (wordsTab && parsed.format === "subtitle_segments") wordsTab.textContent = "Segmentos + tiempos";
-  } else {
-    resultSummary.textContent = "Resultado recibido · necesitamos identificar el formato exacto";
-  }
+  const unit = parsed.format === "subtitle_segments" ? "segmentos temporizados" : "elementos temporizados";
+  resultSummary.textContent = words.length ? `${words.length} ${unit}` : "Resultado recibido";
   resultCard.classList.remove("hidden");
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+function renderQwen(r) {
+  const q = r.qwen || {};
+  const words = q.words || [];
+  qwenWordsBody.innerHTML = "";
+  words.forEach((w, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${i + 1}</td><td>${fmt(w.start)}</td><td>${fmt(w.end)}</td><td>${escapeHtml(w.word || "")}</td>`;
+    qwenWordsBody.appendChild(tr);
+  });
+  if (!words.length) {
+    qwenWordsBody.innerHTML = '<tr><td colspan="4" class="empty">Qwen no devolvió palabras temporizadas.</td></tr>';
+  }
+  qwenSummary.textContent = `${words.length} palabras temporizadas`;
+  qwenMeta.textContent = `Modo: ${q.mode || "—"} · Letra: ${r.lyrics_source || "—"} · ${q.elapsed_s ?? "—"} s`;
+  qwenRaw.textContent = JSON.stringify(r, null, 2);
+  lastQwen = qwenRaw.textContent;
+  qwenResultCard.classList.remove("hidden");
 }
 
 startBtn.addEventListener("click", async () => {
   clearError();
-  resultCard.classList.add("hidden");
   if (!audio.files.length) return showError("Selecciona primero una pista de voces.");
   startBtn.disabled = true;
   progressCard.classList.remove("hidden");
@@ -145,14 +226,9 @@ startBtn.addEventListener("click", async () => {
     form.append("audio", audio.files[0]);
     const debugId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
     const created = await apiJson("api/transcribe", {
-      method: "POST",
-      body: form,
-      headers: { "X-Debug-Request-Id": debugId }
+      method: "POST", body: form, headers: { "X-Debug-Request-Id": debugId }
     });
-    await refreshDiagnostics();
     const hash = created.hash;
-    statusMeta.textContent = `Trabajo: ${hash}`;
-
     let statusData;
     for (;;) {
       statusData = await apiJson(`api/status/${encodeURIComponent(hash)}`);
@@ -163,14 +239,45 @@ startBtn.addEventListener("click", async () => {
       }
       await sleep(5000);
     }
-
     const result = await apiJson(`api/result/${encodeURIComponent(hash)}`);
     renderResult(result);
-  } catch (e) {
-    showError(e.message || String(e));
-  } finally {
+  } catch (e) { showError(e.message || String(e)); }
+  finally {
     const h = await health();
     startBtn.disabled = !h?.mvsep_configured;
+    await refreshDiagnostics();
+  }
+});
+
+qwenBtn.addEventListener("click", async () => {
+  clearError();
+  if (!audio.files.length) return showError("Selecciona primero una pista de voces.");
+  qwenBtn.disabled = true;
+  progressCard.classList.remove("hidden");
+  progressBar.style.width = "35%";
+  statusTitle.textContent = "Enviando a Qwen GPU…";
+  statusMeta.textContent = masterLyrics.value.trim()
+    ? "Usando letra maestra → Forced Aligner"
+    : "Sin letra maestra → Qwen3-ASR 1.7B → Forced Aligner";
+
+  try {
+    const form = new FormData();
+    form.append("audio", audio.files[0]);
+    form.append("lyrics", masterLyrics.value.trim());
+    form.append("prefer_embedded", "true");
+    form.append("language", "Spanish");
+    const r = await apiJson("api/qwen/process", { method: "POST", body: form });
+    progressBar.style.width = "100%";
+    statusTitle.textContent = "Qwen completado ✓";
+    statusMeta.textContent = `${r.qwen.word_count || 0} palabras · ${r.qwen.elapsed_s || "—"} s`;
+    renderQwen(r);
+  } catch (e) {
+    showError(e.message || String(e));
+    statusTitle.textContent = "Qwen falló";
+  } finally {
+    const h = await health();
+    qwenBtn.disabled = !h?.qwen_configured;
+    await refreshDiagnostics();
   }
 });
 
@@ -179,6 +286,12 @@ copyBtn.addEventListener("click", async () => {
   await navigator.clipboard.writeText(lastText);
   copyBtn.textContent = "Copiado ✓";
   setTimeout(() => copyBtn.textContent = "Copiar texto", 1200);
+});
+copyQwenBtn.addEventListener("click", async () => {
+  if (!lastQwen) return;
+  await navigator.clipboard.writeText(lastQwen);
+  copyQwenBtn.textContent = "Copiado ✓";
+  setTimeout(() => copyQwenBtn.textContent = "Copiar JSON", 1200);
 });
 
 document.querySelectorAll(".tab").forEach(btn => {
@@ -190,18 +303,10 @@ document.querySelectorAll(".tab").forEach(btn => {
   });
 });
 
-health();
-
-
-const logsList = $("logsList");
-const refreshLogsBtn = $("refreshLogsBtn");
-const planBadge = $("planBadge");
-
 function localTime(iso) {
   try { return new Date(iso).toLocaleTimeString("es-PE", { hour12: false }); }
   catch { return iso || ""; }
 }
-
 function renderLogs(events) {
   if (!events?.length) {
     logsList.innerHTML = '<div class="empty">Sin eventos todavía.</div>';
@@ -214,6 +319,8 @@ function renderLogs(events) {
     if (e.job_hash) extras.push("hash " + e.job_hash.slice(0, 10) + "…");
     if (d.current_order != null) extras.push("posición " + d.current_order);
     if (d.queue_count != null) extras.push("cola " + d.queue_count);
+    if (d.word_count != null) extras.push(d.word_count + " palabras");
+    if (d.mode) extras.push(d.mode);
     if (d.elapsed_s != null) extras.push(d.elapsed_s + " s");
     return `<div class="log-row ${e.level === "error" ? "log-error" : ""}">
       <span class="log-time">${escapeHtml(localTime(e.ts))}</span>
@@ -222,7 +329,6 @@ function renderLogs(events) {
     </div>`;
   }).join("");
 }
-
 async function refreshDiagnostics() {
   try {
     const [logs, queue] = await Promise.all([
@@ -237,14 +343,13 @@ async function refreshDiagnostics() {
       planBadge.textContent = `Plan: ${planName} · Cola: ${q}`;
       planBadge.classList.add("ok");
     } else {
-      planBadge.textContent = "Plan: no disponible";
+      planBadge.textContent = "Plan MVSEP: no disponible";
       planBadge.classList.remove("ok");
     }
-  } catch (e) {
-    console.warn("diagnostics", e);
-  }
+  } catch (e) { console.warn("diagnostics", e); }
 }
 
 refreshLogsBtn.addEventListener("click", refreshDiagnostics);
 setInterval(refreshDiagnostics, 5000);
+health();
 refreshDiagnostics();

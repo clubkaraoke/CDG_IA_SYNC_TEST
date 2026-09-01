@@ -43,7 +43,7 @@ sudo docker compose -p cdg-ia-sync-test up -d --build --remove-orphans
 sudo docker compose -p cdg-ia-sync-test ps
 
 health="$(
-  curl --fail --silent --show-error     --retry 24 --retry-all-errors --retry-delay 5 --max-time 10     http://127.0.0.1:8091/api/health
+  curl --fail --silent --show-error     --retry 24 --retry-all-errors --retry-delay 5 --max-time 10     http://127.0.0.1:8097/api/health
 )"
 printf '%s\n' "$health"
 

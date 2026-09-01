@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import mimetypes
-import os
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +8,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from .mvsep import MVSEPClient, MVSEPError
 from .parser import parse_transcription
@@ -18,12 +18,16 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 
-app = FastAPI(title="CDG IA Sync Test", version="0.1.0")
+app = FastAPI(title="CDG IA Sync Test", version="0.2.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 mvsep = MVSEPClient()
 
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}
+
+
+class TokenConfig(BaseModel):
+    token: str
 
 
 @app.get("/")
@@ -35,12 +39,22 @@ async def home() -> FileResponse:
 async def health() -> dict[str, Any]:
     return {
         "ok": True,
-        "mvsep_configured": bool(os.getenv("MVSEP_API_TOKEN", "").strip()),
+        "mvsep_configured": mvsep.is_configured(),
+        "mvsep_api_base": mvsep.base_url,
         "model": "Parakeet v3",
         "sep_type": 64,
         "add_opt1": 0,
         "add_opt2": 1,
     }
+
+
+@app.post("/api/config/token")
+async def configure_token(config: TokenConfig) -> dict[str, Any]:
+    try:
+        mvsep.save_token(config.token)
+    except MVSEPError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "mvsep_configured": True}
 
 
 @app.post("/api/transcribe")
@@ -113,8 +127,6 @@ async def result(job_hash: str) -> dict[str, Any]:
                     or "text" in guessed_type.lower()
                     or Path(name).suffix.lower() in {".txt", ".json", ".srt", ".vtt", ".lrc", ".csv", ".tsv"}
                 )
-                # Parakeet puede entregar un archivo textual con extensión poco obvia;
-                # si es pequeño también intentamos parsearlo de forma segura.
                 if is_text_candidate or len(raw) <= 5_000_000:
                     parsed = parse_transcription(raw)
                     entry["parsed"] = parsed

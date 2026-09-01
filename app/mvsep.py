@@ -83,6 +83,16 @@ class MVSEPClient:
             raise MVSEPError(payload.get("data", {}).get("message", "MVSEP rechazó el trabajo"))
         return payload
 
+    async def get_queue_info(self) -> dict[str, Any]:
+        token = self.ensure_configured()
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/app/queue",
+                params={"api_token": token},
+            )
+        response.raise_for_status()
+        return response.json()
+
     async def get_status(self, job_hash: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(

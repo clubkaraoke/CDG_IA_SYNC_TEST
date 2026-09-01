@@ -1,0 +1,9 @@
+services:
+  cdg-ia-sync-test:
+    build: .
+    container_name: cdg-ia-sync-test
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8091:8000"

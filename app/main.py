@@ -6,14 +6,16 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .audio_meta import extract_embedded_lyrics
 from .logstore import read_events, write_event
 from .mvsep import MVSEPClient, MVSEPError
 from .parser import parse_transcription
+from .qwen_worker import QwenWorkerClient, QwenWorkerError
 
 load_dotenv()
 
@@ -24,12 +26,18 @@ app = FastAPI(title="CDG IA Sync Test", version="0.3.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 mvsep = MVSEPClient()
+qwen = QwenWorkerClient()
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}
 _last_status: dict[str, str] = {}
 
 
 class TokenConfig(BaseModel):
     token: str
+
+
+class QwenConfig(BaseModel):
+    endpoint: str
+    token: str = ""
 
 
 @app.middleware("http")
@@ -89,6 +97,8 @@ async def health() -> dict[str, Any]:
         "sep_type": 64,
         "add_opt1": 0,
         "add_opt2": 1,
+        "qwen_configured": qwen.is_configured(),
+        "qwen_endpoint": qwen.endpoint() if qwen.is_configured() else None,
     }
 
 
@@ -115,6 +125,125 @@ async def configure_token(config: TokenConfig) -> dict[str, Any]:
         raise HTTPException(400, str(exc)) from exc
     write_event("mvsep_token_configured", message="Token de MVSEP configurado en OVH.")
     return {"ok": True, "mvsep_configured": True}
+
+
+@app.post("/api/qwen/config")
+async def configure_qwen(config: QwenConfig) -> dict[str, Any]:
+    try:
+        qwen.save_config(config.endpoint, config.token)
+    except QwenWorkerError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    write_event(
+        "qwen_worker_configured",
+        message="Endpoint Qwen GPU configurado en OVH.",
+        details={"endpoint": config.endpoint.strip().rstrip("/")},
+    )
+    return {"ok": True, "qwen_configured": True}
+
+
+@app.get("/api/qwen/health")
+async def qwen_health() -> dict[str, Any]:
+    try:
+        payload = await qwen.health()
+        return {"ok": True, "worker": payload}
+    except Exception as exc:
+        write_event("qwen_worker_health_error", level="error", message=str(exc))
+        raise HTTPException(502, f"Qwen GPU Worker no disponible: {exc}") from exc
+
+
+@app.post("/api/inspect-audio")
+async def inspect_audio(audio: UploadFile = File(...)) -> dict[str, Any]:
+    filename = audio.filename or "audio"
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
+        raise HTTPException(400, f"Formato no permitido: {suffix or 'sin extensión'}")
+    meta = await extract_embedded_lyrics(audio)
+    write_event(
+        "audio_metadata_inspected",
+        filename=filename,
+        message="Metadatos de letra inspeccionados.",
+        details={"lyrics_found": meta.get("found"), "source": meta.get("source")},
+    )
+    return {"ok": True, **meta}
+
+
+@app.post("/api/qwen/process")
+async def qwen_process(
+    audio: UploadFile = File(...),
+    lyrics: str = Form(""),
+    prefer_embedded: bool = Form(True),
+    language: str = Form("Spanish"),
+) -> dict[str, Any]:
+    filename = audio.filename or "audio"
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
+        raise HTTPException(400, f"Formato no permitido: {suffix or 'sin extensión'}")
+
+    embedded = {"found": False, "lyrics": "", "source": None}
+    if prefer_embedded and not lyrics.strip():
+        embedded = await extract_embedded_lyrics(audio)
+
+    master_lyrics = lyrics.strip()
+    lyrics_source = "manual" if master_lyrics else None
+    if not master_lyrics and embedded.get("found"):
+        master_lyrics = str(embedded.get("lyrics") or "").strip()
+        lyrics_source = f"embedded:{embedded.get('source') or 'lyrics'}"
+
+    write_event(
+        "qwen_job_started",
+        filename=filename,
+        message="Enviando audio al Qwen GPU Worker.",
+        details={
+            "lyrics_source": lyrics_source or "qwen_asr",
+            "language": language,
+            "forced_alignment_only": bool(master_lyrics),
+        },
+    )
+
+    started = time.monotonic()
+    try:
+        payload = await qwen.transcribe_align(
+            audio,
+            lyrics=master_lyrics,
+            language=language,
+        )
+    except QwenWorkerError as exc:
+        write_event(
+            "qwen_job_error",
+            level="error",
+            filename=filename,
+            message=str(exc),
+            details={"elapsed_s": round(time.monotonic() - started, 3)},
+        )
+        raise HTTPException(502, str(exc)) from exc
+    except Exception as exc:
+        write_event(
+            "qwen_job_error",
+            level="error",
+            filename=filename,
+            message=str(exc),
+            details={"elapsed_s": round(time.monotonic() - started, 3)},
+        )
+        raise HTTPException(502, f"Falló Qwen GPU Worker: {exc}") from exc
+
+    write_event(
+        "qwen_job_done",
+        filename=filename,
+        message="Qwen terminó la transcripción/alineación.",
+        details={
+            "elapsed_s": round(time.monotonic() - started, 3),
+            "word_count": payload.get("word_count"),
+            "mode": payload.get("mode"),
+            "lyrics_source": lyrics_source or "qwen_asr",
+        },
+    )
+    return {
+        "ok": True,
+        "lyrics_source": lyrics_source or "qwen_asr",
+        "embedded_lyrics_found": bool(embedded.get("found")),
+        "embedded_lyrics_source": embedded.get("source"),
+        "qwen": payload,
+    }
 
 
 @app.post("/api/transcribe")

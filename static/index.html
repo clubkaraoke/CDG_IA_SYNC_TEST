@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CDG IA Sync Test</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <span class="eyebrow">PRUEBA AISLADA · NO PRODUCCIÓN</span>
+        <h1>CDG · Letra + Timing IA</h1>
+        <p>Sube una pista <strong>(Voces)</strong>. La prueba usa Parakeet v3 en MVSEP y muestra tanto el resultado interpretado como la respuesta cruda.</p>
+      </div>
+      <div id="apiBadge" class="badge">Comprobando API…</div>
+    </header>
+
+    <section class="card upload-card">
+      <div class="step">1</div>
+      <div class="grow">
+        <h2>Subir pista de voces</h2>
+        <input id="audio" type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.aac,.ogg" />
+        <p class="hint">Configuración fija de esta prueba: Parakeet v3 · usar audio tal cual.</p>
+      </div>
+      <button id="startBtn">✨ Generar letra + timing</button>
+    </section>
+
+    <section id="progressCard" class="card hidden">
+      <div class="step">2</div>
+      <div class="grow">
+        <h2 id="statusTitle">Enviando a MVSEP…</h2>
+        <div class="progress"><div id="progressBar"></div></div>
+        <div id="statusMeta" class="hint"></div>
+      </div>
+    </section>
+
+    <section id="resultCard" class="card hidden result-card">
+      <div class="result-head">
+        <div>
+          <span class="eyebrow">RESULTADO</span>
+          <h2 id="resultSummary">Transcripción</h2>
+        </div>
+        <button id="copyBtn" class="secondary">Copiar texto</button>
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" data-target="wordsPanel">Palabras + tiempos</button>
+        <button class="tab" data-target="textPanel">Letra</button>
+        <button class="tab" data-target="rawPanel">MVSEP crudo</button>
+      </div>
+
+      <div id="wordsPanel" class="panel active">
+        <table>
+          <thead><tr><th>#</th><th>Inicio</th><th>Fin</th><th>Palabra / segmento</th><th>Fuente</th></tr></thead>
+          <tbody id="wordsBody"></tbody>
+        </table>
+      </div>
+      <div id="textPanel" class="panel"><pre id="plainText"></pre></div>
+      <div id="rawPanel" class="panel"><pre id="rawJson"></pre></div>
+    </section>
+
+    <section id="errorCard" class="card error hidden">
+      <strong>Error</strong>
+      <span id="errorText"></span>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

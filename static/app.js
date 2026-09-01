@@ -138,7 +138,13 @@ startBtn.addEventListener("click", async () => {
   try {
     const form = new FormData();
     form.append("audio", audio.files[0]);
-    const created = await apiJson("api/transcribe", { method: "POST", body: form });
+    const debugId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
+    const created = await apiJson("api/transcribe", {
+      method: "POST",
+      body: form,
+      headers: { "X-Debug-Request-Id": debugId }
+    });
+    await refreshDiagnostics();
     const hash = created.hash;
     statusMeta.textContent = `Trabajo: ${hash}`;
 
@@ -180,3 +186,60 @@ document.querySelectorAll(".tab").forEach(btn => {
 });
 
 health();
+
+
+const logsList = $("logsList");
+const refreshLogsBtn = $("refreshLogsBtn");
+const planBadge = $("planBadge");
+
+function localTime(iso) {
+  try { return new Date(iso).toLocaleTimeString("es-PE", { hour12: false }); }
+  catch { return iso || ""; }
+}
+
+function renderLogs(events) {
+  if (!events?.length) {
+    logsList.innerHTML = '<div class="empty">Sin eventos todavía.</div>';
+    return;
+  }
+  logsList.innerHTML = events.map(e => {
+    const d = e.details || {};
+    const extras = [];
+    if (e.filename) extras.push(e.filename);
+    if (e.job_hash) extras.push("hash " + e.job_hash.slice(0, 10) + "…");
+    if (d.current_order != null) extras.push("posición " + d.current_order);
+    if (d.queue_count != null) extras.push("cola " + d.queue_count);
+    if (d.elapsed_s != null) extras.push(d.elapsed_s + " s");
+    return `<div class="log-row ${e.level === "error" ? "log-error" : ""}">
+      <span class="log-time">${escapeHtml(localTime(e.ts))}</span>
+      <span class="log-event">${escapeHtml(e.event || "")}</span>
+      <span class="log-message">${escapeHtml(e.message || "")}${extras.length ? " · " + escapeHtml(extras.join(" · ")) : ""}</span>
+    </div>`;
+  }).join("");
+}
+
+async function refreshDiagnostics() {
+  try {
+    const [logs, queue] = await Promise.all([
+      apiJson("api/logs?limit=200"),
+      apiJson("api/queue").catch(() => null)
+    ]);
+    renderLogs(logs.events || []);
+    const p = queue?.mvsep?.plan;
+    if (p) {
+      const planName = p.plan ?? p.name ?? "—";
+      const q = p.queue ?? "—";
+      planBadge.textContent = `Plan: ${planName} · Cola: ${q}`;
+      planBadge.classList.add("ok");
+    } else {
+      planBadge.textContent = "Plan: no disponible";
+      planBadge.classList.remove("ok");
+    }
+  } catch (e) {
+    console.warn("diagnostics", e);
+  }
+}
+
+refreshLogsBtn.addEventListener("click", refreshDiagnostics);
+setInterval(refreshDiagnostics, 5000);
+refreshDiagnostics();

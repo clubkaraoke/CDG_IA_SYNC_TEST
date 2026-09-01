@@ -13,6 +13,9 @@ const plainText = $("plainText");
 const rawJson = $("rawJson");
 const resultSummary = $("resultSummary");
 const copyBtn = $("copyBtn");
+const configCard = $("configCard");
+const tokenInput = $("tokenInput");
+const saveTokenBtn = $("saveTokenBtn");
 let lastText = "";
 
 function showError(message) {
@@ -32,12 +35,38 @@ async function apiJson(url, options) {
 
 async function health() {
   try {
-    const h = await apiJson("/api/health");
+    const h = await apiJson("api/health");
     const badge = $("apiBadge");
     badge.textContent = h.mvsep_configured ? "MVSEP configurado ✓" : "Falta API token";
     badge.classList.toggle("ok", h.mvsep_configured);
-  } catch { $("apiBadge").textContent = "Backend no disponible"; }
+    configCard.classList.toggle("hidden", h.mvsep_configured);
+    startBtn.disabled = !h.mvsep_configured;
+    return h;
+  } catch {
+    $("apiBadge").textContent = "Backend no disponible";
+    startBtn.disabled = true;
+  }
 }
+
+saveTokenBtn.addEventListener("click", async () => {
+  clearError();
+  const token = tokenInput.value.trim();
+  if (!token) return showError("Pega primero tu API token de MVSEP.");
+  saveTokenBtn.disabled = true;
+  try {
+    await apiJson("api/config/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token })
+    });
+    tokenInput.value = "";
+    await health();
+  } catch (e) {
+    showError(e.message || String(e));
+  } finally {
+    saveTokenBtn.disabled = false;
+  }
+});
 
 function setStatus(status, data) {
   const labels = {
@@ -109,13 +138,13 @@ startBtn.addEventListener("click", async () => {
   try {
     const form = new FormData();
     form.append("audio", audio.files[0]);
-    const created = await apiJson("/api/transcribe", { method: "POST", body: form });
+    const created = await apiJson("api/transcribe", { method: "POST", body: form });
     const hash = created.hash;
     statusMeta.textContent = `Trabajo: ${hash}`;
 
     let statusData;
     for (;;) {
-      statusData = await apiJson(`/api/status/${encodeURIComponent(hash)}`);
+      statusData = await apiJson(`api/status/${encodeURIComponent(hash)}`);
       setStatus(statusData.status, statusData);
       if (statusData.status === "done") break;
       if (["failed", "not_found", "error"].includes(statusData.status)) {
@@ -124,12 +153,13 @@ startBtn.addEventListener("click", async () => {
       await sleep(5000);
     }
 
-    const result = await apiJson(`/api/result/${encodeURIComponent(hash)}`);
+    const result = await apiJson(`api/result/${encodeURIComponent(hash)}`);
     renderResult(result);
   } catch (e) {
     showError(e.message || String(e));
   } finally {
-    startBtn.disabled = false;
+    const h = await health();
+    startBtn.disabled = !h?.mvsep_configured;
   }
 });
 

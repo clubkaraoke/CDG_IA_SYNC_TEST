@@ -650,6 +650,12 @@ def align_line(
         emissions, _ = resources.model(chunk)
         log_probs = torch.log_softmax(emissions, dim=-1)
 
+    # PyTorch 2.8 marks tensors created inside inference_mode as inference tensors.
+    # BASE v2 applies soft RMS penalties in-place afterwards, so make a normal
+    # tensor copy first; otherwise PyTorch raises:
+    # "Inplace update to inference tensor outside InferenceMode is not allowed."
+    log_probs = log_probs.clone()
+
     if vocal_states is not None and vocal_hop_s and vocal_states.numel() > 0:
         frame_count = log_probs.shape[1]
         frame_times = s + (torch.arange(frame_count, dtype=torch.float32) + 0.5) * ((e - s) / max(1, frame_count))

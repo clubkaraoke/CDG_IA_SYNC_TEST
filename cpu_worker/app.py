@@ -261,6 +261,85 @@ def run_rough_asr(audio_path: str) -> tuple[list[dict[str, Any]], dict[str, Any]
         gc.collect()
 
 
+def _cluster_line_anchors(
+    line: dict[str, Any],
+    asr_words: list[dict[str, Any]],
+    mapping: dict[int, int],
+) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
+    anchors: list[dict[str, Any]] = []
+    for local_pos, wi in enumerate(line["word_indices"]):
+        if wi not in mapping:
+            continue
+        j = mapping[wi]
+        aw = asr_words[j]
+        anchors.append({
+            "master_word_index": wi,
+            "local_pos": local_pos,
+            "asr_word_index": j,
+            "start": float(aw["start"]),
+            "end": float(aw["end"]),
+            "probability": float(aw.get("probability", 0.0) or 0.0),
+            "text": aw.get("text", ""),
+        })
+
+    clusters: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    for anchor in anchors:
+        if current:
+            gap = float(anchor["start"]) - float(current[-1]["end"])
+            if gap > ANCHOR_CLUSTER_GAP_S:
+                clusters.append(current)
+                current = []
+        current.append(anchor)
+    if current:
+        clusters.append(current)
+    return anchors, clusters
+
+
+def _choose_anchor_cluster(
+    clusters: list[list[dict[str, Any]]],
+    line_word_count: int,
+) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]]]:
+    if not clusters:
+        return None, []
+
+    scored: list[tuple[float, list[dict[str, Any]]]] = []
+    diagnostics: list[dict[str, Any]] = []
+    for cluster in clusters:
+        first_pos = int(cluster[0]["local_pos"])
+        last_pos = int(cluster[-1]["local_pos"])
+        count = len(cluster)
+        span = max(0.05, float(cluster[-1]["end"]) - float(cluster[0]["start"]))
+        avg_prob = sum(float(a["probability"]) for a in cluster) / count
+        covered_positions = max(1, last_pos - first_pos + 1)
+        coverage = covered_positions / max(1, line_word_count)
+        density = count / max(0.5, span)
+
+        score = (
+            count * 3.0
+            + coverage * 1.8
+            + avg_prob * 0.8
+            + min(1.5, density * 0.25)
+            + (0.8 if first_pos == 0 else 0.0)
+            + (0.35 if first_pos <= 1 else 0.0)
+            - span * 0.04
+        )
+        diagnostics.append({
+            "count": count,
+            "first_local_pos": first_pos,
+            "last_local_pos": last_pos,
+            "start": round(float(cluster[0]["start"]), 3),
+            "end": round(float(cluster[-1]["end"]), 3),
+            "span_s": round(span, 3),
+            "avg_probability": round(avg_prob, 3),
+            "score": round(score, 3),
+        })
+        scored.append((score, cluster))
+
+    scored.sort(key=lambda item: (-item[0], float(item[1][0]["start"])))
+    return scored[0][1], diagnostics
+
+
 def build_line_windows(
     lines: list[dict[str, Any]],
     master_words: list[dict[str, Any]],
@@ -269,19 +348,71 @@ def build_line_windows(
     duration: float,
 ) -> list[dict[str, Any]]:
     windows: list[dict[str, Any]] = []
+
     for line in lines:
-        matched = [mapping[i] for i in line["word_indices"] if i in mapping]
-        if matched:
-            starts = [asr_words[j]["start"] for j in matched]
-            ends = [asr_words[j]["end"] for j in matched]
+        all_anchors, clusters = _cluster_line_anchors(line, asr_words, mapping)
+        chosen, cluster_diagnostics = _choose_anchor_cluster(clusters, len(line["word_indices"]))
+
+        if chosen:
+            first_pos = int(chosen[0]["local_pos"])
+            last_pos = int(chosen[-1]["local_pos"])
+            line_word_count = len(line["word_indices"])
+            anchor_start = min(float(a["start"]) for a in chosen)
+            anchor_end = max(float(a["end"]) for a in chosen)
+
+            left_missing = max(0, first_pos)
+            right_missing = max(0, line_word_count - 1 - last_pos)
+
+            start = anchor_start - LINE_WINDOW_PAD_S - min(2.4, left_missing * 0.68)
+            end = anchor_end + LINE_WINDOW_PAD_S + min(3.2, right_missing * 0.78)
+
+            expected_min = min(10.0, max(1.6, line_word_count * 0.58 + 0.9))
+            span = end - start
+            if span < expected_min:
+                missing = expected_min - span
+                if left_missing > right_missing:
+                    start -= missing * 0.7
+                    end += missing * 0.3
+                elif right_missing > left_missing:
+                    start -= missing * 0.3
+                    end += missing * 0.7
+                else:
+                    start -= missing * 0.5
+                    end += missing * 0.5
+
+            chosen_ids = {int(a["asr_word_index"]) for a in chosen}
+            rejected = [a for a in all_anchors if int(a["asr_word_index"]) not in chosen_ids]
             windows.append({
                 "known": True,
-                "start": max(0.0, min(starts) - 0.45),
-                "end": min(duration, max(ends) + 0.45),
-                "anchors": len(matched),
+                "start": max(0.0, start),
+                "end": min(duration, end),
+                "anchors": len(chosen),
+                "anchors_total": len(all_anchors),
+                "anchors_rejected": len(rejected),
+                "anchor_cluster_count": len(clusters),
+                "anchor_start": round(anchor_start, 3),
+                "anchor_end": round(anchor_end, 3),
+                "anchor_local_first": first_pos,
+                "anchor_local_last": last_pos,
+                "rejected_anchor_times": [
+                    round(float(a["start"]), 3) for a in rejected[:12]
+                ],
+                "anchor_clusters": cluster_diagnostics,
             })
         else:
-            windows.append({"known": False, "start": None, "end": None, "anchors": 0})
+            windows.append({
+                "known": False,
+                "start": None,
+                "end": None,
+                "anchors": 0,
+                "anchors_total": 0,
+                "anchors_rejected": 0,
+                "anchor_cluster_count": 0,
+                "anchor_start": None,
+                "anchor_end": None,
+                "rejected_anchor_times": [],
+                "anchor_clusters": [],
+            })
 
     known_ids = [i for i, w in enumerate(windows) if w["known"]]
     if not known_ids:
@@ -293,6 +424,18 @@ def build_line_windows(
             windows[i].update(start=cursor, end=next_cursor)
             cursor = next_cursor
         return windows
+
+    # Prevent adjacent anchored lines from owning a large overlapping region.
+    for a, b in zip(known_ids, known_ids[1:]):
+        wa = windows[a]
+        wb = windows[b]
+        if b == a + 1 and float(wa["end"]) - float(wb["start"]) > 0.35:
+            a_anchor_end = float(wa.get("anchor_end") or wa["end"])
+            b_anchor_start = float(wb.get("anchor_start") or wb["start"])
+            if b_anchor_start >= a_anchor_end:
+                boundary = (a_anchor_end + b_anchor_start) / 2.0
+                wa["end"] = min(float(wa["end"]), boundary + 0.18)
+                wb["start"] = max(float(wb["start"]), boundary - 0.18)
 
     first = known_ids[0]
     if first > 0:
@@ -336,14 +479,14 @@ def build_line_windows(
     for i, w in enumerate(windows):
         s = float(w["start"] if w["start"] is not None else 0.0)
         e = float(w["end"] if w["end"] is not None else duration)
-        if e - s < 0.55:
+        if e - s < 0.7:
             mid = (s + e) / 2
-            s = max(0.0, mid - 0.35)
-            e = min(duration, mid + 0.35)
-        windows[i]["start"] = s
-        windows[i]["end"] = e
+            s = max(0.0, mid - 0.45)
+            e = min(duration, mid + 0.45)
+        windows[i]["start"] = round(s, 3)
+        windows[i]["end"] = round(e, 3)
+        windows[i]["window_span_s"] = round(max(0.0, e - s), 3)
     return windows
-
 
 @dataclass
 class AlignmentResources:

@@ -405,3 +405,70 @@ button:disabled{
 @media(max-width:620px){
   .preview-badges{justify-content:flex-start}
 }
+
+.badge.bad{
+  border-color:rgba(255,103,122,.45);
+  color:#ff9ca8;
+  background:rgba(255,103,122,.08);
+}
+.job-metrics{
+  margin-top:14px;
+  border:1px solid #303747;
+  background:#10141c;
+  border-radius:12px;
+  padding:14px;
+}
+.metrics-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:9px;
+  margin-top:12px;
+}
+.metric-cell{
+  border:1px solid #2b3240;
+  background:#0c1017;
+  border-radius:10px;
+  padding:10px 11px;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.metric-cell span{
+  color:#8f98aa;
+  font-size:11px;
+}
+.metric-cell strong{
+  color:#eef0f6;
+  font-size:14px;
+}
+.qa-pill{
+  display:inline-flex;
+  align-items:center;
+  border:1px solid #343b4b;
+  border-radius:999px;
+  padding:4px 7px;
+  font-size:10px;
+  white-space:nowrap;
+  color:#aeb4c5;
+}
+.qa-pill.qa-green{
+  border-color:rgba(87,201,149,.42);
+  color:#87e1b7;
+  background:rgba(87,201,149,.08);
+}
+.qa-pill.qa-yellow{
+  border-color:rgba(225,182,87,.42);
+  color:#f1cf7a;
+  background:rgba(225,182,87,.08);
+}
+.qa-pill.qa-red{
+  border-color:rgba(255,103,122,.42);
+  color:#ff9ca8;
+  background:rgba(255,103,122,.08);
+}
+@media(max-width:900px){
+  .metrics-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:520px){
+  .metrics-grid{grid-template-columns:1fr}
+}

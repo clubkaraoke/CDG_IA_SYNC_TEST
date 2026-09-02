@@ -48,8 +48,10 @@ class QwenConfig(BaseModel):
 async def diagnostic_request_log(request: Request, call_next):
     request_id = request.headers.get("x-debug-request-id")
     is_transcribe = request.method == "POST" and request.url.path.endswith("/api/transcribe")
+    is_local_align = request.method == "POST" and request.url.path.endswith("/api/local/align")
+    is_upload = is_transcribe or is_local_align
     started = time.monotonic()
-    if is_transcribe:
+    if is_upload:
         write_event(
             "browser_upload_started",
             request_id=request_id,
@@ -57,12 +59,13 @@ async def diagnostic_request_log(request: Request, call_next):
             details={
                 "content_length": request.headers.get("content-length"),
                 "content_type": request.headers.get("content-type"),
+                "route": request.url.path,
             },
         )
     try:
         response = await call_next(request)
     except Exception as exc:
-        if is_transcribe:
+        if is_upload:
             write_event(
                 "browser_upload_backend_error",
                 level="error",
@@ -71,7 +74,7 @@ async def diagnostic_request_log(request: Request, call_next):
                 details={"elapsed_s": round(time.monotonic() - started, 3)},
             )
         raise
-    if is_transcribe:
+    if is_upload:
         write_event(
             "browser_upload_request_finished",
             level="info" if response.status_code < 400 else "error",
@@ -491,9 +494,11 @@ async def local_cpu_health() -> dict[str, Any]:
 
 @app.post("/api/local/align")
 async def local_cpu_align(
+    request: Request,
     audio: UploadFile = File(...),
     lyrics: str = Form(...),
 ) -> dict[str, Any]:
+    request_id = request.headers.get("x-debug-request-id")
     filename = audio.filename or "audio"
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
@@ -503,6 +508,7 @@ async def local_cpu_align(
 
     write_event(
         "local_cpu_align_started",
+        request_id=request_id,
         filename=filename,
         message="Enviando audio + letra maestra al worker IA local.",
         details={"engine": "whisperx-style-local"},
@@ -536,6 +542,7 @@ async def local_cpu_align(
         payload = response.json()
         write_event(
             "local_cpu_align_done",
+            request_id=request_id,
             filename=filename,
             message="Worker IA local terminó la sincronización.",
             details={
@@ -552,6 +559,7 @@ async def local_cpu_align(
         write_event(
             "local_cpu_align_error",
             level="error",
+            request_id=request_id,
             filename=filename,
             message=str(exc),
             details={"elapsed_s": round(time.monotonic() - started, 3)},

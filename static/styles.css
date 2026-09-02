@@ -372,3 +372,36 @@ button:disabled{
   cursor:not-allowed;
   filter:none;
 }
+
+.preview-badges{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+.diag-box{
+  margin-top:16px;
+  padding:14px;
+  border:1px solid #303747;
+  border-radius:12px;
+  background:#10141c;
+}
+.no-margin{margin-top:0}
+.diag-log{
+  margin:12px 0 0;
+  max-height:260px;
+  overflow:auto;
+  white-space:pre-wrap;
+  word-break:break-word;
+  border:1px solid #292f3c;
+  border-radius:10px;
+  background:#090c11;
+  color:#cbd2df;
+  padding:12px;
+  font-size:11px;
+  line-height:1.45;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media(max-width:620px){
+  .preview-badges{justify-content:flex-start}
+}

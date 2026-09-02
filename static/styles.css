@@ -332,3 +332,43 @@ tr.active td{
   .actions-row button,
   .transport button{flex:1}
 }
+
+.engine.ready{
+  border-color:rgba(87,201,149,.42);
+  background:rgba(87,201,149,.06);
+  opacity:1;
+}
+.engine.ready strong{color:#8fe3bc}
+.ai-progress{
+  margin-top:14px;
+  border:1px solid #303747;
+  background:#10141c;
+  border-radius:12px;
+  padding:12px;
+}
+.progress-track{
+  height:8px;
+  border-radius:999px;
+  overflow:hidden;
+  background:#242a37;
+}
+.progress-fill{
+  width:0;
+  height:100%;
+  background:linear-gradient(90deg,#7652e8,#9f7cff);
+  transition:width .35s ease;
+}
+.progress-meta{
+  margin-top:9px;
+  display:flex;
+  justify-content:space-between;
+  gap:14px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+.progress-meta strong{font-size:13px}
+button:disabled{
+  opacity:.5;
+  cursor:not-allowed;
+  filter:none;
+}

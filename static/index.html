@@ -3,132 +3,137 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CDG IA Sync Test</title>
+  <title>CDG IA Sync LAB · DJGABO</title>
   <link rel="stylesheet" href="static/styles.css" />
 </head>
 <body>
   <main class="shell">
-    <header>
+    <header class="topbar">
       <div>
-        <span class="eyebrow">PRUEBA AISLADA · NO PRODUCCIÓN</span>
-        <h1>CDG · Comparador IA</h1>
-        <p>Misma pista de <strong>voces</strong>, dos caminos: Parakeet/MVSEP para segmentos y Qwen3 + Forced Aligner para intentar timings palabra por palabra.</p>
+        <span class="eyebrow">LAB AISLADO · NO PRODUCCIÓN</span>
+        <h1>CDG IA Sync LAB</h1>
+        <p class="lead">Audio + letra maestra exacta → timings → previsualización estilo CDG. La IA solo pondrá tiempos; nunca reescribirá la letra.</p>
       </div>
-      <div class="header-badges">
-        <div id="apiBadge" class="badge">MVSEP…</div>
-        <div id="qwenBadge" class="badge">Qwen GPU…</div>
+      <div class="badges">
+        <span class="badge ok">OVH CPU</span>
+        <span class="badge ok">Sin créditos</span>
+        <span class="badge">Preview local</span>
       </div>
     </header>
 
-    <section id="configCard" class="card hidden">
-      <div class="step">0</div>
-      <div class="grow">
-        <h2>Configurar API de MVSEP</h2>
-        <p class="hint">El token se guarda únicamente en el OVH.</p>
-        <input id="tokenInput" type="password" autocomplete="off" placeholder="API token de MVSEP" />
-      </div>
-      <button id="saveTokenBtn">Guardar API</button>
-    </section>
-
-    <section id="qwenConfigCard" class="card hidden">
-      <div class="step">GPU</div>
-      <div class="grow">
-        <h2>Conectar Qwen GPU Worker</h2>
-        <p class="hint">El OVH coordina; Qwen3-ASR 1.7B y ForcedAligner 0.6B corren en una GPU externa.</p>
-        <div class="config-grid">
-          <input id="qwenEndpointInput" type="url" autocomplete="off" placeholder="https://tu-worker-gpu..." />
-          <input id="qwenTokenInput" type="password" autocomplete="off" placeholder="Token privado del worker" />
-        </div>
-      </div>
-      <button id="saveQwenBtn">Conectar GPU</button>
-    </section>
-
-    <section class="card upload-card">
+    <section class="card">
       <div class="step">1</div>
       <div class="grow">
-        <h2>Seleccionar pista de voces</h2>
+        <h2>Cargar prueba</h2>
+        <p class="hint">Usa la misma pista de voces/acapella y pega la letra final ya corregida.</p>
+        <label class="field-label" for="audio">Audio</label>
         <input id="audio" type="file" accept="audio/*,.wav,.mp3,.flac,.m4a,.aac,.ogg" />
-        <div class="lyrics-tools">
-          <button id="inspectLyricsBtn" class="secondary small">Buscar letra embebida</button>
-          <span id="lyricsBadge" class="hint">Letra maestra: todavía no revisada</span>
-        </div>
-        <textarea id="masterLyrics" rows="7" placeholder="Letra maestra opcional. Si está vacía, Qwen3-ASR intentará transcribirla. Si el archivo trae letra embebida, podemos usar esa letra y mandar directamente al Forced Aligner."></textarea>
-      </div>
-      <div class="engine-actions">
-        <button id="startBtn">Parakeet v3 · MVSEP</button>
-        <button id="qwenBtn" class="qwen">Qwen3 + Aligner</button>
+        <label class="field-label" for="masterLyrics">Letra maestra exacta</label>
+        <textarea id="masterLyrics" rows="10" placeholder="Pega aquí la letra EXACTA, respetando saltos de línea."></textarea>
+        <div id="lyricsMeta" class="hint">0 líneas · 0 palabras</div>
       </div>
     </section>
 
-    <section id="progressCard" class="card hidden">
+    <section class="card">
       <div class="step">2</div>
       <div class="grow">
-        <h2 id="statusTitle">Procesando…</h2>
-        <div class="progress"><div id="progressBar"></div></div>
-        <div id="statusMeta" class="hint"></div>
-      </div>
-    </section>
-
-    <section id="qwenResultCard" class="card hidden result-card">
-      <div class="result-head">
-        <div>
-          <span class="eyebrow">QWEN3</span>
-          <h2 id="qwenSummary">Resultado Qwen</h2>
-          <div id="qwenMeta" class="hint"></div>
-        </div>
-        <button id="copyQwenBtn" class="secondary">Copiar JSON</button>
-      </div>
-      <div class="panel active">
-        <table>
-          <thead><tr><th>#</th><th>Inicio</th><th>Fin</th><th>Palabra</th></tr></thead>
-          <tbody id="qwenWordsBody"></tbody>
-        </table>
-      </div>
-      <details>
-        <summary>Respuesta Qwen cruda</summary>
-        <pre id="qwenRaw"></pre>
-      </details>
-    </section>
-
-    <section id="resultCard" class="card hidden result-card">
-      <div class="result-head">
-        <div>
-          <span class="eyebrow">PARAKEET / MVSEP</span>
-          <h2 id="resultSummary">Transcripción</h2>
-        </div>
-        <button id="copyBtn" class="secondary">Copiar texto</button>
-      </div>
-
-      <div class="tabs">
-        <button class="tab active" data-target="wordsPanel">Segmentos + tiempos</button>
-        <button class="tab" data-target="textPanel">Letra</button>
-        <button class="tab" data-target="rawPanel">MVSEP crudo</button>
-      </div>
-
-      <div id="wordsPanel" class="panel active">
-        <table>
-          <thead><tr><th>#</th><th>Inicio</th><th>Fin</th><th>Palabra / segmento</th><th>Fuente</th></tr></thead>
-          <tbody id="wordsBody"></tbody>
-        </table>
-      </div>
-      <div id="textPanel" class="panel"><pre id="plainText"></pre></div>
-      <div id="rawPanel" class="panel"><pre id="rawJson"></pre></div>
-    </section>
-
-    <section id="diagnosticCard" class="card diagnostic-card">
-      <div class="grow">
-        <div class="result-head">
+        <div class="section-head">
           <div>
-            <span class="eyebrow">DIAGNÓSTICO</span>
-            <h2>Historial de actividad</h2>
+            <h2>Timings de prueba</h2>
+            <p class="hint">Primero validamos el reproductor. Luego conectamos WhisperX local al mismo formato.</p>
           </div>
-          <div class="diag-actions">
-            <span id="planBadge" class="badge">Plan MVSEP…</span>
-            <button id="refreshLogsBtn" class="secondary">Actualizar logs</button>
+          <span class="badge warn">SIMULACIÓN · NO IA</span>
+        </div>
+
+        <div class="actions-row">
+          <button id="demoBtn">Generar timing demo</button>
+          <button id="toggleJsonBtn" class="secondary">Pegar JSON de timings</button>
+          <button id="clearBtn" class="ghost">Limpiar timings</button>
+        </div>
+
+        <div id="jsonPanel" class="json-panel hidden">
+          <textarea id="timingJson" rows="8" spellcheck="false" placeholder='{"words":[{"text":"YO","start":12.31,"end":12.60}]}'></textarea>
+          <div class="actions-row compact">
+            <button id="applyJsonBtn">Aplicar JSON</button>
+            <span class="hint">El campo “text” se ignora para editar la letra; solo se toman start/end por orden.</span>
           </div>
         </div>
-        <p class="hint">Subida, cola, procesamiento, worker GPU, resultados y errores. No se registran tokens.</p>
-        <div id="logsList" class="logs-list"><div class="empty">Sin eventos todavía.</div></div>
+
+        <div class="engine-strip">
+          <div class="engine planned">
+            <strong>WhisperX</strong>
+            <span>Próximo · CPU local</span>
+          </div>
+          <div class="engine planned">
+            <strong>MFA</strong>
+            <span>Después</span>
+          </div>
+          <div class="engine planned">
+            <strong>MMS</strong>
+            <span>Después</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="previewCard" class="card preview-card">
+      <div class="step">3</div>
+      <div class="grow">
+        <div class="section-head">
+          <div>
+            <h2>Previsualización de sincronización</h2>
+            <p class="hint">Pantalla 300×216, fondo negro, Impact, texto blanco y barrido de color según start/end.</p>
+          </div>
+          <span id="previewStatus" class="badge">Sin timings</span>
+        </div>
+
+        <div class="player-grid">
+          <div class="screen-wrap">
+            <div id="pvBox" class="pv-box">
+              <canvas id="pv" width="300" height="216"></canvas>
+            </div>
+            <div id="pvInfo" class="pv-info">—</div>
+          </div>
+
+          <div class="controls">
+            <audio id="player" preload="metadata"></audio>
+            <div class="transport">
+              <button id="playBtn" class="play">▶ Play</button>
+              <button id="backBtn" class="secondary">−5 s</button>
+              <button id="fwdBtn" class="secondary">+5 s</button>
+            </div>
+            <input id="seek" type="range" min="0" max="1" step="0.01" value="0" />
+            <div class="clock"><span id="timeNow">00:00.000</span><span id="timeTotal">00:00.000</span></div>
+
+            <div class="mini-note">
+              <strong>Qué validamos aquí</strong>
+              <span>Si el timing entra bien, al reproducir verás la palabra barrerse de blanco a color justo mientras suena.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card result-card">
+      <div class="step">4</div>
+      <div class="grow">
+        <div class="section-head">
+          <div>
+            <h2>Timings aplicados</h2>
+            <p class="hint">La letra mostrada siempre sale de la letra maestra, no del motor.</p>
+          </div>
+          <span id="wordCountBadge" class="badge">0 palabras</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Línea</th><th>Palabra maestra</th><th>Inicio</th><th>Fin</th><th>Duración</th></tr>
+            </thead>
+            <tbody id="timingsBody">
+              <tr><td colspan="6" class="empty">Todavía no hay timings.</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -137,6 +142,7 @@
       <span id="errorText"></span>
     </section>
   </main>
+
   <script src="static/app.js"></script>
 </body>
 </html>

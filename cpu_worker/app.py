@@ -881,7 +881,7 @@ def build_line_quality(
 async def health() -> dict[str, Any]:
     return {
         "ok": True,
-        "engine": "whisperx-style-local",
+        "engine": "whisperx-style-local-base-v2",
         "device": "cpu",
         "compute_type": "int8",
         "whisper_model": WHISPER_MODEL,
@@ -941,47 +941,80 @@ async def align(
     suffix = Path(audio.filename or "audio.wav").suffix or ".wav"
     started = time.monotonic()
     warnings: list[str] = []
-
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as fh:
-        temp_path = fh.name
-        while True:
-            chunk = await audio.read(1024 * 1024)
-            if not chunk:
-                break
-            fh.write(chunk)
+    phases: dict[str, float] = {}
+    temp_path: str | None = None
+    sampler = ResourceSampler()
+    sampler.start()
+    sampler_stopped = False
+    resource_metrics: dict[str, Any] = {}
 
     try:
+        t0 = time.monotonic()
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as fh:
+            temp_path = fh.name
+            while True:
+                chunk = await audio.read(1024 * 1024)
+                if not chunk:
+                    break
+                fh.write(chunk)
+        phases["receive_audio_s"] = round(time.monotonic() - t0, 3)
+
+        t0 = time.monotonic()
         duration = ffprobe_duration(temp_path)
+        phases["probe_s"] = round(time.monotonic() - t0, 3)
         if duration <= 0:
             raise HTTPException(400, "Audio sin duración válida.")
         if duration > MAX_AUDIO_SECONDS:
             raise HTTPException(400, f"Audio demasiado largo para LAB: {duration:.1f}s > {MAX_AUDIO_SECONDS}s.")
 
+        t0 = time.monotonic()
         asr_words, asr_meta = run_rough_asr(temp_path)
+        phases["rough_asr_s"] = round(time.monotonic() - t0, 3)
+
+        t0 = time.monotonic()
         mapping = monotonic_word_match(master_words, asr_words)
         match_ratio = len(mapping) / max(1, len(master_words))
         if match_ratio < 0.45:
             warnings.append(f"ASR encontró pocos anclajes con la letra maestra: {match_ratio:.1%}.")
-
         windows = build_line_windows(lines, master_words, asr_words, mapping, duration)
+        phases["anchors_windows_s"] = round(time.monotonic() - t0, 3)
 
+        t0 = time.monotonic()
         waveform = decode_mono_16k(temp_path)
-        resources = load_alignment_resources()
-        try:
-            output_words = [
-                {
-                    "text": w["text"],
-                    "line": w["line_index"],
-                    "start": None,
-                    "end": None,
-                    "confidence": None,
-                    "interpolated": False,
-                }
-                for w in master_words
-            ]
+        vocal_states, vocal_hop_s, rms_meta = build_rms_activity(waveform, 16000)
+        phases["decode_rms_mask_s"] = round(time.monotonic() - t0, 3)
 
+        t0 = time.monotonic()
+        resources = load_alignment_resources()
+        phases["load_aligner_s"] = round(time.monotonic() - t0, 3)
+
+        output_words = [
+            {
+                "text": w["text"],
+                "line": w["line_index"],
+                "start": None,
+                "end": None,
+                "confidence": None,
+                "vocal_support": None,
+                "interpolated": False,
+                "qa_status": None,
+                "qa_score": None,
+            }
+            for w in master_words
+        ]
+
+        t0 = time.monotonic()
+        try:
             for line, window in zip(lines, windows):
-                line_result, line_warnings = align_line(resources, waveform, window, line, master_words)
+                line_result, line_warnings = align_line(
+                    resources,
+                    waveform,
+                    window,
+                    line,
+                    master_words,
+                    vocal_states=vocal_states,
+                    vocal_hop_s=vocal_hop_s,
+                )
                 warnings.extend([f"Línea {line['index'] + 1}: {msg}" for msg in line_warnings])
                 for wi, timing in line_result.items():
                     output_words[wi].update(timing)
@@ -989,50 +1022,109 @@ async def align(
             del resources
             del waveform
             gc.collect()
+        phases["ctc_align_s"] = round(time.monotonic() - t0, 3)
 
+        t0 = time.monotonic()
         warnings.extend(interpolate_missing(output_words, duration))
 
+        # Preserve problematic chronology for QA instead of hiding it.
+        # Only trim a previous word when the next word genuinely starts later.
         for i in range(len(output_words) - 1):
             cur = output_words[i]
             nxt = output_words[i + 1]
-            if cur["end"] is not None and nxt["start"] is not None and cur["end"] > nxt["start"]:
+            if (
+                cur["end"] is not None
+                and cur["start"] is not None
+                and nxt["start"] is not None
+                and float(cur["end"]) > float(nxt["start"])
+                and float(nxt["start"]) >= float(cur["start"]) + 0.05
+            ):
                 cur["end"] = round(max(float(cur["start"]) + 0.04, float(nxt["start"]) - 0.01), 3)
 
-        aligned = sum(1 for w in output_words if not w.get("interpolated") and w.get("start") is not None)
+        for w in output_words:
+            if w.get("start") is not None and w.get("end") is not None and w.get("vocal_support") is None:
+                w["vocal_support"] = round(
+                    vocal_support_for_range(
+                        float(w["start"]),
+                        float(w["end"]),
+                        vocal_states,
+                        vocal_hop_s,
+                    ),
+                    3,
+                )
+
+        line_quality, quality_summary = build_line_quality(lines, output_words, windows)
+
+        aligned = sum(
+            1 for w in output_words
+            if not w.get("interpolated") and w.get("start") is not None
+        )
         interpolated = sum(1 for w in output_words if w.get("interpolated"))
+        low_conf_020 = sum(
+            1 for w in output_words
+            if w.get("confidence") is not None and float(w["confidence"]) < 0.20
+        )
+        low_conf_010 = sum(
+            1 for w in output_words
+            if w.get("confidence") is not None and float(w["confidence"]) < 0.10
+        )
+        anchors_rejected = sum(int(w.get("anchors_rejected") or 0) for w in windows)
+        split_anchor_lines = sum(1 for w in windows if int(w.get("anchor_cluster_count") or 0) > 1)
+        phases["postprocess_qa_s"] = round(time.monotonic() - t0, 3)
+
+        resource_metrics = sampler.stop()
+        sampler_stopped = True
 
         return {
             "ok": True,
-            "engine": "whisperx-style-local",
+            "engine": "whisperx-style-local-base-v2",
             "model": {
                 "rough_asr": f"faster-whisper/{WHISPER_MODEL}",
                 "aligner": ALIGN_BUNDLE_NAME,
                 "device": "cpu",
                 "compute_type": "int8",
+                "vocal_mask": "adaptive-rms-soft-ctc",
             },
             "elapsed_s": round(time.monotonic() - started, 3),
             "audio_duration_s": round(duration, 3),
             "master_word_count": len(master_words),
+            "phases": phases,
             "rough_asr": {
                 **asr_meta,
                 "master_anchor_count": len(mapping),
                 "master_anchor_ratio": round(match_ratio, 3),
+                "anchors_rejected": anchors_rejected,
+                "split_anchor_lines": split_anchor_lines,
             },
+            "vocal_mask": rms_meta,
             "metrics": {
                 "aligned_words": aligned,
                 "interpolated_words": interpolated,
+                "low_confidence_lt_020": low_conf_020,
+                "low_confidence_lt_010": low_conf_010,
+                "anchors_rejected": anchors_rejected,
+                "split_anchor_lines": split_anchor_lines,
+                **quality_summary,
+                **resource_metrics,
             },
             "words": output_words,
-            "warnings": warnings[:200],
+            "line_quality": line_quality,
+            "warnings": warnings[:300],
             "line_windows": windows,
         }
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(500, f"Falló el worker local: {exc}") from exc
+        raise HTTPException(500, f"Falló el worker local BASE v2: {exc}") from exc
     finally:
-        try:
-            os.unlink(temp_path)
-        except OSError:
-            pass
+        if not sampler_stopped:
+            try:
+                sampler.stop()
+            except Exception:
+                pass
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
         gc.collect()

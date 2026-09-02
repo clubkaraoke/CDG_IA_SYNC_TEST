@@ -213,6 +213,37 @@ function fmtSec(v) {
   return Number(v).toFixed(3) + " s";
 }
 
+function buildLyricsFromScribeWords(words) {
+  const rows = [];
+  let current = [];
+  let prevEnd = null;
+
+  (Array.isArray(words) ? words : []).forEach((w) => {
+    const text = String(w?.text || "").trim();
+    if (!text) return;
+
+    const start = Number(w?.start);
+    const end = Number(w?.end);
+    const gap = Number.isFinite(start) && Number.isFinite(prevEnd) ? start - prevEnd : 0;
+
+    if (current.length && (gap > 1.2 || current.length >= 9)) {
+      rows.push(current.join(" "));
+      current = [];
+    }
+
+    current.push(text);
+    prevEnd = Number.isFinite(end) ? end : prevEnd;
+
+    if (/[.!?…]["')\]]?$/.test(text) && current.length >= 3) {
+      rows.push(current.join(" "));
+      current = [];
+    }
+  });
+
+  if (current.length) rows.push(current.join(" "));
+  return rows.join("\n");
+}
+
 function qaLabel(status) {
   if (status === "green") return "🟢 VERDE";
   if (status === "yellow") return "🟡 AMARILLO";
@@ -843,12 +874,10 @@ scribeBtn.addEventListener("click", async () => {
   if (!audioInput.files.length) {
     return showError("Selecciona primero la pista de voces/acapella.");
   }
-  if (!state.words.length) {
-    return showError("Pega la letra maestra para poder comparar Scribe contra el CDG.");
-  }
-
   syncBtn.disabled = true;
   scribeBtn.disabled = true;
+  const originalScribeLabel = scribeBtn.textContent;
+  scribeBtn.textContent = "⏳ Scribe v2 procesando…";
   demoBtn.disabled = true;
   aiProgress.classList.remove("hidden");
   aiProgressBar.style.width = "15%";
@@ -869,7 +898,7 @@ scribeBtn.addEventListener("click", async () => {
   try {
     const form = new FormData();
     form.append("audio", audioInput.files[0]);
-    form.append("lyrics", masterLyrics.value);
+    form.append("lyrics", masterLyrics.value || "");
     form.append("language_code", "spa");
 
     const requestId = "scribe-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
@@ -892,6 +921,16 @@ scribeBtn.addEventListener("click", async () => {
 
     const metrics = result.metrics || {};
     const coverage = Math.round(Number(metrics.coverage_ratio || 0) * 100);
+
+    if (!state.words.length && result.source_mode === "scribe_only") {
+      masterLyrics.value = buildLyricsFromScribeWords(result.words || []);
+      parseMasterLyrics();
+      logClient("info", "scribe_lyrics_loaded", "La transcripción de Scribe se cargó como letra de trabajo para el preview.", {
+        words: state.words.length,
+        lines: state.lines.length,
+      });
+    }
+
     aiMeta.textContent =
       `${metrics.scribe_word_count ?? 0} Scribe · ${metrics.mapped_words ?? 0}/${metrics.master_word_count ?? 0} mapeadas · ${coverage}% · ${result.elapsed_s ?? "—"} s`;
 
@@ -906,8 +945,9 @@ scribeBtn.addEventListener("click", async () => {
     if (scribePanel) scribePanel.classList.remove("hidden");
     if (scribeTranscript) scribeTranscript.value = result?.scribe?.text || "";
     if (scribeCompareMeta) {
-      scribeCompareMeta.textContent =
-        `Exactas: ${metrics.exact_matches ?? 0} · fuzzy: ${metrics.fuzzy_matches ?? 0} · agrupadas: ${metrics.grouped_matches ?? 0} · interpoladas: ${metrics.interpolated_words ?? 0}`;
+      scribeCompareMeta.textContent = result.source_mode === "scribe_only"
+        ? `Modo transcripción directa · ${metrics.scribe_word_count ?? 0} palabras con timestamps`
+        : `Exactas: ${metrics.exact_matches ?? 0} · fuzzy: ${metrics.fuzzy_matches ?? 0} · agrupadas: ${metrics.grouped_matches ?? 0} · interpoladas: ${metrics.interpolated_words ?? 0}`;
     }
     if (scribeCompareBadge) {
       scribeCompareBadge.classList.remove("ok", "warn", "bad");
@@ -941,6 +981,7 @@ scribeBtn.addEventListener("click", async () => {
     logClient("error", "scribe_request_error", e.message || String(e));
     showError(e.message || String(e));
   } finally {
+    if (typeof originalScribeLabel !== "undefined") scribeBtn.textContent = originalScribeLabel;
     demoBtn.disabled = false;
     await checkLocalEngine();
     await checkElevenLabsEngine();

@@ -737,6 +737,146 @@ def interpolate_missing(words: list[dict[str, Any]], duration: float) -> list[st
     return warnings
 
 
+def build_line_quality(
+    lines: list[dict[str, Any]],
+    output_words: list[dict[str, Any]],
+    windows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
+
+    for line, window in zip(lines, windows):
+        ws = [output_words[i] for i in line["word_indices"]]
+        timed = [w for w in ws if w.get("start") is not None and w.get("end") is not None]
+        confs = [float(w.get("confidence") or 0.0) for w in timed]
+        supports = [float(w.get("vocal_support") or 0.0) for w in timed]
+
+        gaps: list[float] = []
+        non_monotonic = False
+        for a, b in zip(timed, timed[1:]):
+            if float(b["start"]) < float(a["start"]):
+                non_monotonic = True
+            gaps.append(max(0.0, float(b["start"]) - float(a["end"])))
+
+        max_gap = max(gaps, default=0.0)
+        avg_conf = sum(confs) / max(1, len(confs))
+        avg_support = sum(supports) / max(1, len(supports))
+        low_support_ratio = (
+            sum(1 for v in supports if v < 0.25) / max(1, len(supports))
+        )
+        interpolated = sum(1 for w in ws if w.get("interpolated"))
+        anchors_used = int(window.get("anchors") or 0)
+        anchors_rejected = int(window.get("anchors_rejected") or 0)
+
+        diagnostics.append({
+            "line": int(line["index"]),
+            "text": line["text"],
+            "confidence_avg": round(avg_conf, 3),
+            "vocal_support_avg": round(avg_support, 3),
+            "low_vocal_support_ratio": round(low_support_ratio, 3),
+            "max_intra_gap_s": round(max_gap, 3),
+            "non_monotonic": non_monotonic,
+            "overlap_next_s": 0.0,
+            "anchors_used": anchors_used,
+            "anchors_total": int(window.get("anchors_total") or 0),
+            "anchors_rejected": anchors_rejected,
+            "anchor_clusters": int(window.get("anchor_cluster_count") or 0),
+            "window_span_s": round(float(window.get("window_span_s") or 0.0), 3),
+            "interpolated_words": interpolated,
+            "status": "green",
+            "score": 100,
+            "reasons": [],
+            "realign_recommended": False,
+        })
+
+    for i in range(len(diagnostics) - 1):
+        cur_ids = lines[i]["word_indices"]
+        nxt_ids = lines[i + 1]["word_indices"]
+        cur_timed = [output_words[j] for j in cur_ids if output_words[j].get("end") is not None]
+        nxt_timed = [output_words[j] for j in nxt_ids if output_words[j].get("start") is not None]
+        if cur_timed and nxt_timed:
+            overlap = max(0.0, float(cur_timed[-1]["end"]) - float(nxt_timed[0]["start"]))
+            diagnostics[i]["overlap_next_s"] = round(overlap, 3)
+
+    for diag in diagnostics:
+        reasons: list[str] = []
+        score = 100
+
+        if diag["anchors_rejected"] > 0:
+            reasons.append(f'{diag["anchors_rejected"]} anchor(s) repetido/sospechoso(s) descartado(s)')
+            score -= min(15, 4 * diag["anchors_rejected"])
+        if diag["max_intra_gap_s"] > 2.5:
+            reasons.append(f'hueco interno extremo {diag["max_intra_gap_s"]:.2f}s')
+            score -= 35
+        elif diag["max_intra_gap_s"] > 1.2:
+            reasons.append(f'hueco interno alto {diag["max_intra_gap_s"]:.2f}s')
+            score -= 15
+        if diag["non_monotonic"]:
+            reasons.append("orden temporal no monótono")
+            score -= 35
+        if diag["overlap_next_s"] > 0.15:
+            reasons.append(f'solape con línea siguiente {diag["overlap_next_s"]:.2f}s')
+            score -= 30
+        elif diag["overlap_next_s"] > 0.05:
+            reasons.append(f'solape leve {diag["overlap_next_s"]:.2f}s')
+            score -= 10
+        if diag["low_vocal_support_ratio"] >= 0.35:
+            reasons.append("muchas palabras sobre zona de baja actividad vocal")
+            score -= 30
+        elif diag["low_vocal_support_ratio"] >= 0.15:
+            reasons.append("actividad vocal débil en parte de la línea")
+            score -= 12
+        if diag["confidence_avg"] < 0.18:
+            reasons.append(f'confidence muy baja {diag["confidence_avg"]:.2f}')
+            score -= 30
+        elif diag["confidence_avg"] < 0.42:
+            reasons.append(f'confidence moderada/baja {diag["confidence_avg"]:.2f}')
+            score -= 12
+        if diag["anchors_used"] == 0:
+            reasons.append("sin anchors ASR directos")
+            score -= 12
+        if diag["interpolated_words"] > 0:
+            reasons.append(f'{diag["interpolated_words"]} palabra(s) interpolada(s)')
+            score -= 20
+
+        hard_red = (
+            diag["max_intra_gap_s"] > 2.5
+            or diag["non_monotonic"]
+            or diag["overlap_next_s"] > 0.15
+            or diag["low_vocal_support_ratio"] >= 0.35
+            or diag["confidence_avg"] < 0.18
+        )
+        yellow = (
+            reasons
+            or diag["confidence_avg"] < 0.55
+            or diag["anchors_used"] < 2
+        )
+
+        status = "red" if hard_red else ("yellow" if yellow else "green")
+        diag["status"] = status
+        diag["score"] = max(0, min(100, score))
+        diag["reasons"] = reasons
+        diag["realign_recommended"] = status == "red"
+
+        for wi in lines[diag["line"]]["word_indices"]:
+            output_words[wi]["qa_status"] = status
+            output_words[wi]["qa_score"] = diag["score"]
+
+    counts = {
+        "green": sum(1 for d in diagnostics if d["status"] == "green"),
+        "yellow": sum(1 for d in diagnostics if d["status"] == "yellow"),
+        "red": sum(1 for d in diagnostics if d["status"] == "red"),
+    }
+    summary = {
+        "line_status_counts": counts,
+        "suspicious_gaps": sum(1 for d in diagnostics if d["max_intra_gap_s"] > 1.2),
+        "extreme_gaps": sum(1 for d in diagnostics if d["max_intra_gap_s"] > 2.5),
+        "non_monotonic_lines": sum(1 for d in diagnostics if d["non_monotonic"]),
+        "overlap_lines": sum(1 for d in diagnostics if d["overlap_next_s"] > 0.05),
+        "realign_recommended_lines": sum(1 for d in diagnostics if d["realign_recommended"]),
+    }
+    return diagnostics, summary
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     return {

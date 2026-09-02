@@ -39,16 +39,24 @@
       <div class="grow">
         <div class="section-head">
           <div>
-            <h2>Timings de prueba</h2>
-            <p class="hint">Primero validamos el reproductor. Luego conectamos WhisperX local al mismo formato.</p>
+            <h2>Sincronización IA</h2>
+            <p class="hint">El motor local usa faster-whisper para localizar la voz y alineación CTC española para ajustar la letra maestra.</p>
           </div>
-          <span class="badge warn">SIMULACIÓN · NO IA</span>
+          <span id="engineBadge" class="badge ok">WhisperX local · CPU</span>
         </div>
 
         <div class="actions-row">
-          <button id="demoBtn">Generar timing demo</button>
+          <button id="syncBtn">🤖 Sincronizar con IA</button>
+          <button id="demoBtn" class="secondary">Timing demo</button>
           <button id="toggleJsonBtn" class="secondary">Pegar JSON de timings</button>
           <button id="clearBtn" class="ghost">Limpiar timings</button>
+        </div>
+        <div id="aiProgress" class="ai-progress hidden">
+          <div class="progress-track"><div id="aiProgressBar" class="progress-fill"></div></div>
+          <div class="progress-meta">
+            <strong id="aiStatus">Preparando…</strong>
+            <span id="aiMeta" class="hint"></span>
+          </div>
         </div>
 
         <div id="jsonPanel" class="json-panel hidden">
@@ -60,9 +68,9 @@
         </div>
 
         <div class="engine-strip">
-          <div class="engine planned">
-            <strong>WhisperX</strong>
-            <span>Próximo · CPU local</span>
+          <div class="engine ready">
+            <strong>WhisperX local</strong>
+            <span>ACTIVO · faster-whisper small + CTC español</span>
           </div>
           <div class="engine planned">
             <strong>MFA</strong>

@@ -3,7 +3,13 @@ const $ = (id) => document.getElementById(id);
 const audioInput = $("audio");
 const masterLyrics = $("masterLyrics");
 const lyricsMeta = $("lyricsMeta");
+const syncBtn = $("syncBtn");
 const demoBtn = $("demoBtn");
+const engineBadge = $("engineBadge");
+const aiProgress = $("aiProgress");
+const aiProgressBar = $("aiProgressBar");
+const aiStatus = $("aiStatus");
+const aiMeta = $("aiMeta");
 const toggleJsonBtn = $("toggleJsonBtn");
 const jsonPanel = $("jsonPanel");
 const timingJson = $("timingJson");
@@ -46,6 +52,35 @@ function showError(message) {
 
 function clearError() {
   errorCard.classList.add("hidden");
+}
+
+
+async function apiJson(url, options = {}) {
+  const response = await fetch(url, options);
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = { detail: `HTTP ${response.status}` };
+  }
+  if (!response.ok) {
+    throw new Error(payload.detail || payload.message || `HTTP ${response.status}`);
+  }
+  return payload;
+}
+
+async function checkLocalEngine() {
+  try {
+    const h = await apiJson("api/local/health");
+    const w = h.worker || {};
+    engineBadge.textContent = `${w.whisper_model || "Whisper"} · CPU INT8 ✓`;
+    engineBadge.classList.add("ok");
+    syncBtn.disabled = false;
+  } catch (e) {
+    engineBadge.textContent = "Motor IA no disponible";
+    engineBadge.classList.remove("ok");
+    syncBtn.disabled = true;
+  }
 }
 
 function fmtTime(sec) {
@@ -396,6 +431,80 @@ masterLyrics.addEventListener("input", () => {
   parseMasterLyrics();
 });
 
+
+syncBtn.addEventListener("click", async () => {
+  clearError();
+  parseMasterLyrics();
+
+  if (!audioInput.files.length) {
+    return showError("Selecciona primero la pista de voces/acapella.");
+  }
+  if (!state.words.length) {
+    return showError("Pega primero la letra maestra exacta.");
+  }
+
+  syncBtn.disabled = true;
+  demoBtn.disabled = true;
+  aiProgress.classList.remove("hidden");
+  aiProgressBar.style.width = "12%";
+  aiStatus.textContent = "Subiendo audio al OVH…";
+  aiMeta.textContent = audioInput.files[0].name;
+
+  let pct = 18;
+  let phase = 0;
+  const phases = [
+    "faster-whisper está localizando la voz…",
+    "Comparando la voz con la letra maestra…",
+    "Alineador español ajustando palabra por palabra…",
+    "Preparando timings para el preview…",
+  ];
+  const started = performance.now();
+  const ticker = setInterval(() => {
+    pct = Math.min(88, pct + 3);
+    aiProgressBar.style.width = pct + "%";
+    phase = Math.min(phases.length - 1, Math.floor((pct - 18) / 20));
+    aiStatus.textContent = phases[phase];
+    aiMeta.textContent = `${((performance.now() - started) / 1000).toFixed(0)} s · procesamiento local CPU`;
+  }, 1800);
+
+  try {
+    const form = new FormData();
+    form.append("audio", audioInput.files[0]);
+    form.append("lyrics", masterLyrics.value);
+
+    const result = await apiJson("api/local/align", {
+      method: "POST",
+      body: form,
+    });
+
+    clearInterval(ticker);
+    aiProgressBar.style.width = "100%";
+    aiStatus.textContent = "Sincronización IA completada ✓";
+
+    const metrics = result.metrics || {};
+    const anchors = result.rough_asr || {};
+    aiMeta.textContent =
+      `${metrics.aligned_words ?? 0} alineadas · ${metrics.interpolated_words ?? 0} interpoladas · ${result.elapsed_s ?? "—"} s · anclajes ${Math.round((anchors.master_anchor_ratio || 0) * 100)}%`;
+
+    applyTimingArray(result.words || []);
+    timingJson.value = JSON.stringify(result, null, 2);
+
+    previewStatus.textContent = metrics.interpolated_words
+      ? `IA lista · ${metrics.interpolated_words} revisar`
+      : "IA lista ✓";
+    previewStatus.classList.add("ok");
+  } catch (e) {
+    clearInterval(ticker);
+    aiProgressBar.style.width = "100%";
+    aiStatus.textContent = "La sincronización falló";
+    aiMeta.textContent = "";
+    showError(e.message || String(e));
+  } finally {
+    demoBtn.disabled = false;
+    await checkLocalEngine();
+  }
+});
+
 demoBtn.addEventListener("click", generateDemoTimings);
 
 toggleJsonBtn.addEventListener("click", () => {
@@ -446,4 +555,5 @@ window.addEventListener("beforeunload", () => {
 });
 
 parseMasterLyrics();
+checkLocalEngine();
 requestAnimationFrame(animationLoop);

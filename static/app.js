@@ -5,6 +5,7 @@ const masterLyrics = $("masterLyrics");
 const lyricsMeta = $("lyricsMeta");
 const syncBtn = $("syncBtn");
 const demoBtn = $("demoBtn");
+const restoreAiBtn = $("restoreAiBtn");
 const engineBadge = $("engineBadge");
 const aiProgress = $("aiProgress");
 const aiProgressBar = $("aiProgressBar");
@@ -46,6 +47,7 @@ const state = {
   timingSource: "none",
   clientLogs: [],
   lastRawResult: null,
+  lastAiResult: null,
   lastApplyWarnings: [],
 };
 
@@ -223,6 +225,7 @@ function clearTimings() {
   state.timingsReady = false;
   state.activeWord = -1;
   state.lastRawResult = null;
+  state.lastAiResult = null;
   state.lastApplyWarnings = [];
   timingJson.value = "";
   setTimingSource("none");
@@ -323,6 +326,15 @@ function applyTimingArray(inputWords, options = {}) {
 
 function generateDemoTimings() {
   clearError();
+
+  if (state.lastAiResult) {
+    const ok = window.confirm("Ya tienes un resultado de IA REAL. Timing demo reemplazará temporalmente el preview. Podrás volver con “Restaurar IA real”. ¿Continuar?");
+    if (!ok) {
+      logClient("info", "demo_cancelled", "Se canceló Timing demo para conservar IA REAL.");
+      return;
+    }
+  }
+
   parseMasterLyrics();
 
   if (!audioInput.files.length) {
@@ -633,6 +645,8 @@ syncBtn.addEventListener("click", async () => {
       `${metrics.aligned_words ?? 0} alineadas · ${metrics.interpolated_words ?? 0} interpoladas · ${result.elapsed_s ?? "—"} s · anclajes ${Math.round((anchors.master_anchor_ratio || 0) * 100)}%`;
 
     state.lastRawResult = result;
+    state.lastAiResult = result;
+    restoreAiBtn.classList.remove("hidden");
     timingJson.value = JSON.stringify(result, null, 2);
     jsonPanel.classList.remove("hidden");
     logClient("info", "ia_result_received", "El navegador recibió el JSON real de la IA.", {
@@ -667,6 +681,23 @@ syncBtn.addEventListener("click", async () => {
 });
 
 demoBtn.addEventListener("click", generateDemoTimings);
+
+restoreAiBtn.addEventListener("click", () => {
+  clearError();
+  if (!state.lastAiResult || !Array.isArray(state.lastAiResult.words)) {
+    return showError("No hay un resultado IA real guardado en esta sesión.");
+  }
+  state.lastRawResult = state.lastAiResult;
+  timingJson.value = JSON.stringify(state.lastAiResult, null, 2);
+  jsonPanel.classList.remove("hidden");
+  const applied = applyTimingArray(state.lastAiResult.words, { source: "ai" });
+  const metrics = state.lastAiResult.metrics || {};
+  previewStatus.textContent = applied.warnings.length
+    ? `IA REAL · ${applied.warnings.length} warning(s)`
+    : (metrics.interpolated_words ? `IA REAL · ${metrics.interpolated_words} revisar` : "IA REAL lista ✓");
+  previewStatus.classList.add("ok");
+  logClient("info", "ia_result_restored", "Se restauró el último resultado IA REAL sin reprocesar el audio.");
+});
 
 toggleJsonBtn.addEventListener("click", () => {
   jsonPanel.classList.toggle("hidden");

@@ -8,7 +8,31 @@ services:
     environment:
       MVSEP_TOKEN_FILE: /runtime/mvsep_token
       QWEN_RUNTIME_DIR: /runtime
+      CPU_WORKER_URL: http://cdg-ai-sync-cpu:8001
     volumes:
       - ./runtime:/runtime
     ports:
       - "127.0.0.1:8097:8000"
+    depends_on:
+      - cdg-ai-sync-cpu
+
+  cdg-ai-sync-cpu:
+    build:
+      context: ./cpu_worker
+    container_name: cdg-ai-sync-cpu
+    restart: unless-stopped
+    mem_limit: 5g
+    cpus: "4.0"
+    environment:
+      MODEL_ROOT: /models
+      WHISPER_MODEL: small
+      WHISPER_THREADS: "4"
+      LANGUAGE: es
+      MAX_AUDIO_SECONDS: "720"
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+      TORCH_HOME: /models/torch
+    volumes:
+      - /data/cdg-ai-models:/models
+    ports:
+      - "127.0.0.1:8098:8001"

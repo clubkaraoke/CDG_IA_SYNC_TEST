@@ -16,7 +16,8 @@
       </div>
       <div class="badges">
         <span class="badge ok">OVH CPU</span>
-        <span class="badge ok">Sin créditos</span>
+        <span class="badge ok">BASE local · sin créditos</span>
+        <span class="badge">Scribe v2 · API pago</span>
         <span class="badge">Preview local</span>
       </div>
     </header>
@@ -46,7 +47,8 @@
         </div>
 
         <div class="actions-row">
-          <button id="syncBtn">🤖 Sincronizar con IA</button>
+          <button id="syncBtn">🤖 BASE v2 local</button>
+          <button id="scribeBtn" class="secondary">✨ ElevenLabs Scribe v2</button>
           <button id="demoBtn" class="secondary">Timing demo</button>
           <button id="restoreAiBtn" class="secondary hidden">↩ Restaurar IA real</button>
           <button id="toggleJsonBtn" class="secondary">Pegar JSON de timings</button>
@@ -69,6 +71,18 @@
             <span id="jobQualityBadge" class="badge">Sin resultado</span>
           </div>
           <div id="jobMetricsGrid" class="metrics-grid"></div>
+        </section>
+
+        <section id="scribePanel" class="job-metrics hidden">
+          <div class="section-head">
+            <div>
+              <strong>📝 Texto original reconocido por Scribe v2</strong>
+              <div class="hint">Se conserva para comparar contra la letra maestra. El preview usa la letra maestra exacta.</div>
+            </div>
+            <span id="scribeCompareBadge" class="badge">Sin prueba</span>
+          </div>
+          <textarea id="scribeTranscript" rows="6" readonly spellcheck="false" placeholder="Aquí aparecerá la transcripción original de ElevenLabs."></textarea>
+          <div id="scribeCompareMeta" class="hint"></div>
         </section>
 
         <div id="jsonPanel" class="json-panel hidden">
@@ -97,6 +111,10 @@
           <div class="engine ready">
             <strong>WhisperX local</strong>
             <span>ACTIVO · faster-whisper small + CTC español</span>
+          </div>
+          <div id="scribeEngine" class="engine planned">
+            <strong>ElevenLabs Scribe v2</strong>
+            <span id="scribeEngineStatus">API no configurada</span>
           </div>
           <div class="engine planned">
             <strong>MFA</strong>

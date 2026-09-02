@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 import time
 import unicodedata
 from dataclasses import dataclass
@@ -14,7 +15,9 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+import psutil
 import torch
+import torch.nn.functional as F
 import torchaudio
 import torchaudio.functional as AF
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -27,13 +30,75 @@ LANGUAGE = os.getenv("LANGUAGE", "es")
 ALIGN_BUNDLE_NAME = "VOXPOPULI_ASR_BASE_10K_ES"
 MAX_AUDIO_SECONDS = int(os.getenv("MAX_AUDIO_SECONDS", "720"))
 
+ANCHOR_CLUSTER_GAP_S = float(os.getenv("ANCHOR_CLUSTER_GAP_S", "3.2"))
+LINE_WINDOW_PAD_S = float(os.getenv("LINE_WINDOW_PAD_S", "0.55"))
+RMS_HOP_MS = int(os.getenv("RMS_HOP_MS", "10"))
+RMS_FRAME_MS = int(os.getenv("RMS_FRAME_MS", "30"))
+CTC_SILENCE_PENALTY = float(os.getenv("CTC_SILENCE_PENALTY", "4.5"))
+CTC_AMBIGUOUS_PENALTY = float(os.getenv("CTC_AMBIGUOUS_PENALTY", "1.0"))
+
 WHISPER_CACHE = MODEL_ROOT / "faster-whisper"
 TORCH_CACHE = MODEL_ROOT / "torch"
 WHISPER_CACHE.mkdir(parents=True, exist_ok=True)
 TORCH_CACHE.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("TORCH_HOME", str(TORCH_CACHE))
 
-app = FastAPI(title="CDG IA CPU Worker", version="0.1.0")
+app = FastAPI(title="CDG IA CPU Worker", version="0.2.0")
+
+
+class ResourceSampler:
+    def __init__(self, interval_s: float = 0.2) -> None:
+        self.interval_s = interval_s
+        self.process = psutil.Process(os.getpid())
+        self.stop_event = threading.Event()
+        self.thread: threading.Thread | None = None
+        self.peak_rss = 0
+        self.peak_cpu = 0.0
+
+    def _snapshot(self) -> None:
+        procs = [self.process]
+        try:
+            procs.extend(self.process.children(recursive=True))
+        except Exception:
+            pass
+
+        rss = 0
+        cpu = 0.0
+        for proc in procs:
+            try:
+                rss += int(proc.memory_info().rss)
+                cpu += float(proc.cpu_percent(interval=None))
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+        self.peak_rss = max(self.peak_rss, rss)
+        self.peak_cpu = max(self.peak_cpu, cpu)
+
+    def _run(self) -> None:
+        try:
+            self.process.cpu_percent(interval=None)
+        except Exception:
+            pass
+        while not self.stop_event.wait(self.interval_s):
+            self._snapshot()
+        self._snapshot()
+
+    def start(self) -> None:
+        self._snapshot()
+        self.thread = threading.Thread(target=self._run, name="resource-sampler", daemon=True)
+        self.thread.start()
+
+    def stop(self) -> dict[str, Any]:
+        self.stop_event.set()
+        if self.thread:
+            self.thread.join(timeout=2.0)
+        self._snapshot()
+        return {
+            "peak_rss_mb": round(self.peak_rss / 1024 / 1024, 1),
+            "peak_rss_gb": round(self.peak_rss / 1024 / 1024 / 1024, 3),
+            "peak_cpu_pct": round(self.peak_cpu, 1),
+            "cpu_pct_scale_note": "100%=1 core; worker limit=4 cores",
+        }
 
 
 def normalize_match(text: str) -> str:

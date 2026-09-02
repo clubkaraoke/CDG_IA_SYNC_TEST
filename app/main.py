@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import time
+
+import httpx
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +24,7 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
+CPU_WORKER_URL = os.getenv("CPU_WORKER_URL", "http://cdg-ai-sync-cpu:8001").rstrip("/")
 
 app = FastAPI(title="CDG IA Sync Test", version="0.3.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -467,3 +471,89 @@ async def result(job_hash: str) -> dict[str, Any]:
         "best_parse": best_parse,
         "raw_mvsep": payload,
     }
+
+
+# ---------------------------------------------------------------------------
+# Motor local CPU · Whisper + CTC español
+# ---------------------------------------------------------------------------
+
+@app.get("/api/local/health")
+async def local_cpu_health() -> dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(f"{CPU_WORKER_URL}/health")
+        response.raise_for_status()
+        payload = response.json()
+        return {"ok": True, "worker": payload}
+    except Exception as exc:
+        raise HTTPException(502, f"Worker IA local no disponible: {exc}") from exc
+
+
+@app.post("/api/local/align")
+async def local_cpu_align(
+    audio: UploadFile = File(...),
+    lyrics: str = Form(...),
+) -> dict[str, Any]:
+    filename = audio.filename or "audio"
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
+        raise HTTPException(400, f"Formato no permitido: {suffix or 'sin extensión'}")
+    if not lyrics.strip():
+        raise HTTPException(400, "Falta la letra maestra exacta.")
+
+    write_event(
+        "local_cpu_align_started",
+        filename=filename,
+        message="Enviando audio + letra maestra al worker IA local.",
+        details={"engine": "whisperx-style-local"},
+    )
+
+    started = time.monotonic()
+    try:
+        await audio.seek(0)
+        files = {
+            "audio": (
+                filename,
+                audio.file,
+                audio.content_type or "application/octet-stream",
+            )
+        }
+        data = {"lyrics": lyrics}
+        timeout = httpx.Timeout(connect=30.0, read=1200.0, write=1200.0, pool=30.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                f"{CPU_WORKER_URL}/align",
+                files=files,
+                data=data,
+            )
+        if response.status_code >= 400:
+            try:
+                detail = response.json().get("detail")
+            except Exception:
+                detail = response.text[:1000]
+            raise HTTPException(response.status_code, detail or "Falló el worker IA local.")
+
+        payload = response.json()
+        write_event(
+            "local_cpu_align_done",
+            filename=filename,
+            message="Worker IA local terminó la sincronización.",
+            details={
+                "elapsed_s": round(time.monotonic() - started, 3),
+                "word_count": payload.get("master_word_count"),
+                "aligned_words": (payload.get("metrics") or {}).get("aligned_words"),
+                "interpolated_words": (payload.get("metrics") or {}).get("interpolated_words"),
+            },
+        )
+        return payload
+    except HTTPException:
+        raise
+    except Exception as exc:
+        write_event(
+            "local_cpu_align_error",
+            level="error",
+            filename=filename,
+            message=str(exc),
+            details={"elapsed_s": round(time.monotonic() - started, 3)},
+        )
+        raise HTTPException(502, f"Falló el worker IA local: {exc}") from exc

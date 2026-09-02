@@ -3,6 +3,9 @@ const $ = (id) => document.getElementById(id);
 const audioInput = $("audio");
 const masterLyrics = $("masterLyrics");
 const lyricsMeta = $("lyricsMeta");
+const baseSelectBtn = $("baseSelectBtn");
+const scribeSelectBtn = $("scribeSelectBtn");
+const runSelectedBtn = $("runSelectedBtn");
 const syncBtn = $("syncBtn");
 const scribeBtn = $("scribeBtn");
 const demoBtn = $("demoBtn");
@@ -61,6 +64,7 @@ const state = {
   lastApplyWarnings: [],
   lastMetrics: null,
   lastEngineSource: null,
+  selectedEngine: "base",
 };
 
 function clamp(v, a, b) {
@@ -70,6 +74,30 @@ function clamp(v, a, b) {
 function showError(message) {
   errorText.textContent = message;
   errorCard.classList.remove("hidden");
+}
+
+function updateEngineSelector() {
+  if (!baseSelectBtn || !scribeSelectBtn || !runSelectedBtn) return;
+
+  const baseSelected = state.selectedEngine === "base";
+
+  baseSelectBtn.classList.toggle("secondary", !baseSelected);
+  scribeSelectBtn.classList.toggle("secondary", baseSelected);
+
+  baseSelectBtn.textContent = baseSelected ? "🤖 BASE v2 local ✓" : "🤖 BASE v2 local";
+  scribeSelectBtn.textContent = baseSelected ? "✨ ElevenLabs Scribe v2" : "✨ ElevenLabs Scribe v2 ✓";
+
+  runSelectedBtn.textContent = baseSelected
+    ? "▶ Procesar con BASE v2"
+    : "▶ Procesar con Scribe v2";
+}
+
+function selectEngine(engine) {
+  state.selectedEngine = engine === "scribe" ? "scribe" : "base";
+  updateEngineSelector();
+  logClient("info", "engine_selected", state.selectedEngine === "scribe"
+    ? "Se seleccionó ElevenLabs Scribe v2."
+    : "Se seleccionó BASE v2 local.");
 }
 
 function clearError() {
@@ -175,11 +203,14 @@ async function checkLocalEngine() {
     engineBadge.textContent = `${w.whisper_model || "Whisper"} · CPU INT8 ✓`;
     engineBadge.classList.add("ok");
     syncBtn.disabled = false;
+    if (baseSelectBtn) baseSelectBtn.disabled = false;
   } catch (e) {
     engineBadge.textContent = "Motor IA no disponible";
     engineBadge.classList.remove("ok");
     syncBtn.disabled = true;
+    if (baseSelectBtn) baseSelectBtn.disabled = true;
   }
+  updateEngineSelector();
 }
 
 async function checkElevenLabsEngine() {
@@ -188,6 +219,7 @@ async function checkElevenLabsEngine() {
     const h = await apiJson("api/elevenlabs/health");
     const configured = Boolean(h.configured);
     scribeBtn.disabled = !configured;
+    if (scribeSelectBtn) scribeSelectBtn.disabled = !configured;
     if (scribeEngine) scribeEngine.classList.toggle("ready", configured);
     if (scribeEngine) scribeEngine.classList.toggle("planned", !configured);
     if (scribeEngineStatus) {
@@ -197,8 +229,10 @@ async function checkElevenLabsEngine() {
     }
   } catch (e) {
     scribeBtn.disabled = true;
+    if (scribeSelectBtn) scribeSelectBtn.disabled = true;
     if (scribeEngineStatus) scribeEngineStatus.textContent = "API no disponible";
   }
+  updateEngineSelector();
 }
 
 function fmtTime(sec) {
@@ -758,6 +792,22 @@ masterLyrics.addEventListener("input", () => {
 });
 
 
+baseSelectBtn.addEventListener("click", () => selectEngine("base"));
+scribeSelectBtn.addEventListener("click", () => selectEngine("scribe"));
+
+runSelectedBtn.addEventListener("click", () => {
+  clearError();
+  if (state.selectedEngine === "scribe") {
+    if (scribeBtn.disabled) return showError("ElevenLabs Scribe v2 no está disponible en este momento.");
+    runSelectedBtn.disabled = true;
+    scribeBtn.click();
+  } else {
+    if (syncBtn.disabled) return showError("BASE v2 local no está disponible en este momento.");
+    runSelectedBtn.disabled = true;
+    syncBtn.click();
+  }
+});
+
 syncBtn.addEventListener("click", async () => {
   clearError();
   state.lastRawResult = null;
@@ -858,7 +908,9 @@ syncBtn.addEventListener("click", async () => {
     showError(e.message || String(e));
   } finally {
     demoBtn.disabled = false;
+    runSelectedBtn.disabled = false;
     await checkLocalEngine();
+    await checkElevenLabsEngine();
   }
 });
 
@@ -983,6 +1035,7 @@ scribeBtn.addEventListener("click", async () => {
   } finally {
     if (typeof originalScribeLabel !== "undefined") scribeBtn.textContent = originalScribeLabel;
     demoBtn.disabled = false;
+    runSelectedBtn.disabled = false;
     await checkLocalEngine();
     await checkElevenLabsEngine();
   }
@@ -1070,6 +1123,7 @@ window.addEventListener("beforeunload", () => {
 
 parseMasterLyrics();
 setTimingSource("none");
+updateEngineSelector();
 checkLocalEngine();
 checkElevenLabsEngine();
 renderDiagnosticLog();

@@ -19,6 +19,7 @@ from .logstore import read_events, write_event
 from .mvsep import MVSEPClient, MVSEPError
 from .parser import parse_transcription
 from .qwen_worker import QwenWorkerClient, QwenWorkerError
+from .elevenlabs_scribe import ElevenLabsScribeClient, ElevenLabsScribeError, map_scribe_to_master
 
 load_dotenv()
 
@@ -31,6 +32,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 mvsep = MVSEPClient()
 qwen = QwenWorkerClient()
+elevenlabs = ElevenLabsScribeClient()
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}
 _last_status: dict[str, str] = {}
 
@@ -49,7 +51,8 @@ async def diagnostic_request_log(request: Request, call_next):
     request_id = request.headers.get("x-debug-request-id")
     is_transcribe = request.method == "POST" and request.url.path.endswith("/api/transcribe")
     is_local_align = request.method == "POST" and request.url.path.endswith("/api/local/align")
-    is_upload = is_transcribe or is_local_align
+    is_elevenlabs = request.method == "POST" and request.url.path.endswith("/api/elevenlabs/transcribe")
+    is_upload = is_transcribe or is_local_align or is_elevenlabs
     started = time.monotonic()
     if is_upload:
         write_event(
@@ -106,6 +109,8 @@ async def health() -> dict[str, Any]:
         "add_opt2": 1,
         "qwen_configured": qwen.is_configured(),
         "qwen_endpoint": qwen.endpoint() if qwen.is_configured() else None,
+        "elevenlabs_configured": elevenlabs.is_configured(),
+        "elevenlabs_model": elevenlabs.model_id,
     }
 
 
@@ -475,6 +480,104 @@ async def result(job_hash: str) -> dict[str, Any]:
         "raw_mvsep": payload,
     }
 
+
+
+# ---------------------------------------------------------------------------
+# ElevenLabs Scribe v2 · API externa · word timestamps
+# ---------------------------------------------------------------------------
+
+@app.get("/api/elevenlabs/health")
+async def elevenlabs_health() -> dict[str, Any]:
+    return {
+        "ok": True,
+        "configured": elevenlabs.is_configured(),
+        "model": elevenlabs.model_id,
+        "api_base": elevenlabs.base_url,
+    }
+
+
+@app.post("/api/elevenlabs/transcribe")
+async def elevenlabs_transcribe(
+    request: Request,
+    audio: UploadFile = File(...),
+    lyrics: str = Form(...),
+    language_code: str = Form("spa"),
+) -> dict[str, Any]:
+    request_id = request.headers.get("x-debug-request-id")
+    filename = audio.filename or "audio"
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
+        raise HTTPException(400, f"Formato no permitido: {suffix or 'sin extensión'}")
+    if not lyrics.strip():
+        raise HTTPException(400, "Falta la letra maestra para comparar Scribe contra el CDG.")
+    if not elevenlabs.is_configured():
+        raise HTTPException(
+            503,
+            "ElevenLabs no está configurado en el LAB. Falta ELEVENLABS_API_KEY en el servidor.",
+        )
+
+    write_event(
+        "elevenlabs_scribe_started",
+        request_id=request_id,
+        filename=filename,
+        message="Enviando acapella a ElevenLabs Scribe v2.",
+        details={
+            "model": elevenlabs.model_id,
+            "language_code": language_code,
+            "master_words": len(lyrics.split()),
+        },
+    )
+
+    started = time.monotonic()
+    try:
+        scribe = await elevenlabs.transcribe(audio, language_code=language_code)
+        mapped = map_scribe_to_master(lyrics, scribe.get("words") or [])
+    except ElevenLabsScribeError as exc:
+        write_event(
+            "elevenlabs_scribe_error",
+            level="error",
+            request_id=request_id,
+            filename=filename,
+            message=str(exc),
+            details={"elapsed_s": round(time.monotonic() - started, 3)},
+        )
+        raise HTTPException(502, str(exc)) from exc
+    except Exception as exc:
+        write_event(
+            "elevenlabs_scribe_error",
+            level="error",
+            request_id=request_id,
+            filename=filename,
+            message=str(exc),
+            details={"elapsed_s": round(time.monotonic() - started, 3)},
+        )
+        raise HTTPException(502, f"Falló ElevenLabs Scribe v2: {exc}") from exc
+
+    elapsed = round(time.monotonic() - started, 3)
+    metrics = mapped.get("metrics") or {}
+    write_event(
+        "elevenlabs_scribe_done",
+        request_id=request_id,
+        filename=filename,
+        message="ElevenLabs Scribe v2 terminó y se comparó contra la letra maestra.",
+        details={
+            "elapsed_s": elapsed,
+            "scribe_words": metrics.get("scribe_word_count"),
+            "master_words": metrics.get("master_word_count"),
+            "coverage_ratio": metrics.get("coverage_ratio"),
+            "interpolated_words": metrics.get("interpolated_words"),
+        },
+    )
+
+    return {
+        "ok": True,
+        "engine": "elevenlabs-scribe-v2",
+        "elapsed_s": elapsed,
+        "master_word_count": metrics.get("master_word_count"),
+        "scribe": scribe,
+        "words": mapped.get("words") or [],
+        "metrics": metrics,
+    }
 
 # ---------------------------------------------------------------------------
 # Motor local CPU · Whisper + CTC español

@@ -67,6 +67,20 @@
           </div>
         </div>
 
+        <section class="diag-box">
+          <div class="section-head">
+            <div>
+              <strong>📋 Log de diagnóstico</strong>
+              <div class="hint">Combina eventos del navegador y del OVH para poder copiar el error exacto.</div>
+            </div>
+            <div class="actions-row compact no-margin">
+              <button id="refreshLogBtn" class="secondary">Actualizar log</button>
+              <button id="copyLogBtn" class="secondary">Copiar log</button>
+            </div>
+          </div>
+          <pre id="diagLog" class="diag-log">Sin eventos todavía.</pre>
+        </section>
+
         <div class="engine-strip">
           <div class="engine ready">
             <strong>WhisperX local</strong>
@@ -92,7 +106,10 @@
             <h2>Previsualización de sincronización</h2>
             <p class="hint">Pantalla 300×216, fondo negro, Impact, texto blanco y barrido de color según start/end.</p>
           </div>
-          <span id="previewStatus" class="badge">Sin timings</span>
+          <div class="preview-badges">
+            <span id="timingSourceBadge" class="badge">FUENTE: NINGUNA</span>
+            <span id="previewStatus" class="badge">Sin timings</span>
+          </div>
         </div>
 
         <div class="player-grid">

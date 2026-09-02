@@ -4,6 +4,7 @@ const audioInput = $("audio");
 const masterLyrics = $("masterLyrics");
 const lyricsMeta = $("lyricsMeta");
 const syncBtn = $("syncBtn");
+const scribeBtn = $("scribeBtn");
 const demoBtn = $("demoBtn");
 const restoreAiBtn = $("restoreAiBtn");
 const engineBadge = $("engineBadge");
@@ -14,6 +15,12 @@ const aiMeta = $("aiMeta");
 const jobMetricsCard = $("jobMetricsCard");
 const jobMetricsGrid = $("jobMetricsGrid");
 const jobQualityBadge = $("jobQualityBadge");
+const scribePanel = $("scribePanel");
+const scribeTranscript = $("scribeTranscript");
+const scribeCompareBadge = $("scribeCompareBadge");
+const scribeCompareMeta = $("scribeCompareMeta");
+const scribeEngine = $("scribeEngine");
+const scribeEngineStatus = $("scribeEngineStatus");
 const toggleJsonBtn = $("toggleJsonBtn");
 const jsonPanel = $("jsonPanel");
 const timingJson = $("timingJson");
@@ -53,6 +60,7 @@ const state = {
   lastAiResult: null,
   lastApplyWarnings: [],
   lastMetrics: null,
+  lastEngineSource: null,
 };
 
 function clamp(v, a, b) {
@@ -87,6 +95,9 @@ function setTimingSource(source, detail = "") {
   timingSourceBadge.classList.remove("ok", "warn");
   if (source === "ai") {
     timingSourceBadge.textContent = detail ? `FUENTE: IA REAL · ${detail}` : "FUENTE: IA REAL";
+    timingSourceBadge.classList.add("ok");
+  } else if (source === "scribe") {
+    timingSourceBadge.textContent = detail ? `FUENTE: SCRIBE V2 · ${detail}` : "FUENTE: SCRIBE V2";
     timingSourceBadge.classList.add("ok");
   } else if (source === "demo") {
     timingSourceBadge.textContent = "FUENTE: DEMO";
@@ -171,6 +182,25 @@ async function checkLocalEngine() {
   }
 }
 
+async function checkElevenLabsEngine() {
+  if (!scribeBtn) return;
+  try {
+    const h = await apiJson("api/elevenlabs/health");
+    const configured = Boolean(h.configured);
+    scribeBtn.disabled = !configured;
+    if (scribeEngine) scribeEngine.classList.toggle("ready", configured);
+    if (scribeEngine) scribeEngine.classList.toggle("planned", !configured);
+    if (scribeEngineStatus) {
+      scribeEngineStatus.textContent = configured
+        ? `LISTO · ${h.model || "scribe_v2"} · timestamps por palabra`
+        : "Falta ELEVENLABS_API_KEY en OVH";
+    }
+  } catch (e) {
+    scribeBtn.disabled = true;
+    if (scribeEngineStatus) scribeEngineStatus.textContent = "API no disponible";
+  }
+}
+
 function fmtTime(sec) {
   const s = Math.max(0, Number(sec) || 0);
   const min = Math.floor(s / 60);
@@ -201,6 +231,43 @@ function renderJobMetrics(result) {
   state.lastMetrics = m;
   jobMetricsCard.classList.remove("hidden");
   jobQualityBadge.classList.remove("ok", "warn", "bad");
+
+  if (result?.engine === "elevenlabs-scribe-v2") {
+    const coverage = Number(m.coverage_ratio || 0);
+    if (coverage >= 0.97 && Number(m.interpolated_words || 0) <= 3) {
+      jobQualityBadge.textContent = `🟢 Cobertura ${Math.round(coverage * 100)}%`;
+      jobQualityBadge.classList.add("ok");
+    } else if (coverage >= 0.90) {
+      jobQualityBadge.textContent = `🟡 Cobertura ${Math.round(coverage * 100)}%`;
+      jobQualityBadge.classList.add("warn");
+    } else {
+      jobQualityBadge.textContent = `🔴 Cobertura ${Math.round(coverage * 100)}%`;
+      jobQualityBadge.classList.add("bad");
+    }
+
+    const cells = [
+      ["Tiempo API", result?.elapsed_s != null ? `${Number(result.elapsed_s).toFixed(2)} s` : "—"],
+      ["Palabras Scribe", m.scribe_word_count ?? result?.scribe?.word_count ?? "—"],
+      ["Palabras maestra", m.master_word_count ?? result?.master_word_count ?? "—"],
+      ["Mapeadas", m.mapped_words ?? "—"],
+      ["Cobertura", `${Math.round(coverage * 100)}%`],
+      ["Exactas", m.exact_matches ?? 0],
+      ["Fuzzy", m.fuzzy_matches ?? 0],
+      ["Agrupadas 2↔1", m.grouped_matches ?? 0],
+      ["Interpoladas", m.interpolated_words ?? 0],
+      ["Extras Scribe", m.ignored_scribe_words ?? 0],
+      ["Modelo", result?.scribe?.model_id || "scribe_v2"],
+      ["Idioma", result?.scribe?.language_code || "—"],
+    ];
+
+    jobMetricsGrid.innerHTML = cells.map(([k, v]) => `
+      <div class="metric-cell">
+        <span>${escapeHtml(String(k))}</span>
+        <strong>${escapeHtml(String(v))}</strong>
+      </div>
+    `).join("");
+    return;
+  }
 
   if ((counts.red || 0) > 0) {
     jobQualityBadge.textContent = `🔴 ${counts.red} línea(s) roja(s)`;
@@ -289,9 +356,17 @@ function clearTimings() {
   state.lastAiResult = null;
   state.lastApplyWarnings = [];
   state.lastMetrics = null;
+  state.lastEngineSource = null;
   timingJson.value = "";
   if (jobMetricsCard) jobMetricsCard.classList.add("hidden");
   if (jobMetricsGrid) jobMetricsGrid.innerHTML = "";
+  if (scribePanel) scribePanel.classList.add("hidden");
+  if (scribeTranscript) scribeTranscript.value = "";
+  if (scribeCompareMeta) scribeCompareMeta.textContent = "";
+  if (scribeCompareBadge) {
+    scribeCompareBadge.textContent = "Sin prueba";
+    scribeCompareBadge.classList.remove("ok", "warn", "bad");
+  }
   if (jobQualityBadge) {
     jobQualityBadge.textContent = "Sin resultado";
     jobQualityBadge.classList.remove("ok", "warn", "bad");
@@ -756,6 +831,122 @@ syncBtn.addEventListener("click", async () => {
   }
 });
 
+
+scribeBtn.addEventListener("click", async () => {
+  clearError();
+  state.lastRawResult = null;
+  state.lastApplyWarnings = [];
+  timingJson.value = "";
+  setTimingSource("none");
+  parseMasterLyrics();
+
+  if (!audioInput.files.length) {
+    return showError("Selecciona primero la pista de voces/acapella.");
+  }
+  if (!state.words.length) {
+    return showError("Pega la letra maestra para poder comparar Scribe contra el CDG.");
+  }
+
+  syncBtn.disabled = true;
+  scribeBtn.disabled = true;
+  demoBtn.disabled = true;
+  aiProgress.classList.remove("hidden");
+  aiProgressBar.style.width = "15%";
+  aiStatus.textContent = "Subiendo acapella a ElevenLabs Scribe v2…";
+  aiMeta.textContent = audioInput.files[0].name;
+
+  let pct = 22;
+  const started = performance.now();
+  const ticker = setInterval(() => {
+    pct = Math.min(90, pct + 5);
+    aiProgressBar.style.width = pct + "%";
+    aiStatus.textContent = pct < 58
+      ? "Scribe v2 está transcribiendo con timestamps por palabra…"
+      : "Comparando Scribe contra la letra maestra…";
+    aiMeta.textContent = `${((performance.now() - started) / 1000).toFixed(0)} s · ElevenLabs API`;
+  }, 900);
+
+  try {
+    const form = new FormData();
+    form.append("audio", audioInput.files[0]);
+    form.append("lyrics", masterLyrics.value);
+    form.append("language_code", "spa");
+
+    const requestId = "scribe-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+    logClient("info", "scribe_request_started", "Enviando audio a ElevenLabs Scribe v2.", {
+      request_id: requestId,
+      filename: audioInput.files[0].name,
+      bytes: audioInput.files[0].size,
+      master_words: state.words.length,
+    });
+
+    const result = await apiJson("api/elevenlabs/transcribe", {
+      method: "POST",
+      body: form,
+      headers: { "X-Debug-Request-ID": requestId },
+    });
+
+    clearInterval(ticker);
+    aiProgressBar.style.width = "100%";
+    aiStatus.textContent = "ElevenLabs Scribe v2 completado ✓";
+
+    const metrics = result.metrics || {};
+    const coverage = Math.round(Number(metrics.coverage_ratio || 0) * 100);
+    aiMeta.textContent =
+      `${metrics.scribe_word_count ?? 0} Scribe · ${metrics.mapped_words ?? 0}/${metrics.master_word_count ?? 0} mapeadas · ${coverage}% · ${result.elapsed_s ?? "—"} s`;
+
+    state.lastRawResult = result;
+    state.lastAiResult = result;
+    state.lastEngineSource = "scribe";
+    renderJobMetrics(result);
+    restoreAiBtn.classList.remove("hidden");
+    timingJson.value = JSON.stringify(result, null, 2);
+    jsonPanel.classList.remove("hidden");
+
+    if (scribePanel) scribePanel.classList.remove("hidden");
+    if (scribeTranscript) scribeTranscript.value = result?.scribe?.text || "";
+    if (scribeCompareMeta) {
+      scribeCompareMeta.textContent =
+        `Exactas: ${metrics.exact_matches ?? 0} · fuzzy: ${metrics.fuzzy_matches ?? 0} · agrupadas: ${metrics.grouped_matches ?? 0} · interpoladas: ${metrics.interpolated_words ?? 0}`;
+    }
+    if (scribeCompareBadge) {
+      scribeCompareBadge.classList.remove("ok", "warn", "bad");
+      if (coverage >= 97) {
+        scribeCompareBadge.textContent = `🟢 ${coverage}% mapeado`;
+        scribeCompareBadge.classList.add("ok");
+      } else if (coverage >= 90) {
+        scribeCompareBadge.textContent = `🟡 ${coverage}% mapeado`;
+        scribeCompareBadge.classList.add("warn");
+      } else {
+        scribeCompareBadge.textContent = `🔴 ${coverage}% mapeado`;
+        scribeCompareBadge.classList.add("bad");
+      }
+    }
+
+    logClient("info", "scribe_result_received", "Se recibió Scribe v2 y el matching contra la letra maestra.", {
+      request_id: requestId,
+      metrics,
+    });
+
+    const applied = applyTimingArray(result.words || [], { source: "scribe" });
+    previewStatus.textContent = applied.warnings.length
+      ? `SCRIBE V2 · ${applied.warnings.length} warning(s)`
+      : `SCRIBE V2 · ${coverage}% mapeado`;
+    previewStatus.classList.add("ok");
+  } catch (e) {
+    clearInterval(ticker);
+    aiProgressBar.style.width = "100%";
+    aiStatus.textContent = "ElevenLabs Scribe v2 falló";
+    aiMeta.textContent = "";
+    logClient("error", "scribe_request_error", e.message || String(e));
+    showError(e.message || String(e));
+  } finally {
+    demoBtn.disabled = false;
+    await checkLocalEngine();
+    await checkElevenLabsEngine();
+  }
+});
+
 demoBtn.addEventListener("click", generateDemoTimings);
 
 restoreAiBtn.addEventListener("click", () => {
@@ -767,12 +958,19 @@ restoreAiBtn.addEventListener("click", () => {
   renderJobMetrics(state.lastAiResult);
   timingJson.value = JSON.stringify(state.lastAiResult, null, 2);
   jsonPanel.classList.remove("hidden");
-  const applied = applyTimingArray(state.lastAiResult.words, { source: "ai" });
+  const restoreSource = state.lastAiResult.engine === "elevenlabs-scribe-v2" ? "scribe" : "ai";
+  const applied = applyTimingArray(state.lastAiResult.words, { source: restoreSource });
   const metrics = state.lastAiResult.metrics || {};
-  previewStatus.textContent = applied.warnings.length
-    ? `IA REAL · ${applied.warnings.length} warning(s)`
-    : (metrics.interpolated_words ? `IA REAL · ${metrics.interpolated_words} revisar` : "IA REAL lista ✓");
+  previewStatus.textContent = restoreSource === "scribe"
+    ? (applied.warnings.length ? `SCRIBE V2 · ${applied.warnings.length} warning(s)` : `SCRIBE V2 · ${Math.round(Number(metrics.coverage_ratio || 0) * 100)}% mapeado`)
+    : (applied.warnings.length
+      ? `IA REAL · ${applied.warnings.length} warning(s)`
+      : (metrics.interpolated_words ? `IA REAL · ${metrics.interpolated_words} revisar` : "IA REAL lista ✓"));
   previewStatus.classList.add("ok");
+  if (state.lastAiResult.engine === "elevenlabs-scribe-v2") {
+    if (scribePanel) scribePanel.classList.remove("hidden");
+    if (scribeTranscript) scribeTranscript.value = state.lastAiResult?.scribe?.text || "";
+  }
   logClient("info", "ia_result_restored", "Se restauró el último resultado IA REAL sin reprocesar el audio.");
 });
 
@@ -832,5 +1030,6 @@ window.addEventListener("beforeunload", () => {
 parseMasterLyrics();
 setTimingSource("none");
 checkLocalEngine();
+checkElevenLabsEngine();
 renderDiagnosticLog();
 requestAnimationFrame(animationLoop);

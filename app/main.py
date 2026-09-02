@@ -500,7 +500,7 @@ async def elevenlabs_health() -> dict[str, Any]:
 async def elevenlabs_transcribe(
     request: Request,
     audio: UploadFile = File(...),
-    lyrics: str = Form(...),
+    lyrics: str = Form(""),
     language_code: str = Form("spa"),
 ) -> dict[str, Any]:
     request_id = request.headers.get("x-debug-request-id")
@@ -508,8 +508,6 @@ async def elevenlabs_transcribe(
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(400, f"Formato no permitido: {suffix or 'sin extensión'}")
-    if not lyrics.strip():
-        raise HTTPException(400, "Falta la letra maestra para comparar Scribe contra el CDG.")
     if not elevenlabs.is_configured():
         raise HTTPException(
             503,
@@ -524,14 +522,50 @@ async def elevenlabs_transcribe(
         details={
             "model": elevenlabs.model_id,
             "language_code": language_code,
-            "master_words": len(lyrics.split()),
+            "master_words": len(lyrics.split()) if lyrics.strip() else 0,
+            "mode": "compare_master" if lyrics.strip() else "scribe_only",
         },
     )
 
     started = time.monotonic()
     try:
         scribe = await elevenlabs.transcribe(audio, language_code=language_code)
-        mapped = map_scribe_to_master(lyrics, scribe.get("words") or [])
+        if lyrics.strip():
+            mapped = map_scribe_to_master(lyrics, scribe.get("words") or [])
+            source_mode = "compare_master"
+        else:
+            raw_words = scribe.get("words") or []
+            preview_words = [
+                {
+                    "text": str(w.get("text") or "").strip(),
+                    "start": float(w["start"]),
+                    "end": float(w["end"]),
+                    "confidence": 1.0,
+                    "interpolated": False,
+                    "qa_status": "green",
+                    "qa_score": 100,
+                    "scribe_text": str(w.get("text") or "").strip(),
+                    "match_type": "scribe_raw",
+                }
+                for w in raw_words
+                if str(w.get("text") or "").strip()
+            ]
+            count = len(preview_words)
+            mapped = {
+                "words": preview_words,
+                "metrics": {
+                    "master_word_count": count,
+                    "scribe_word_count": count,
+                    "mapped_words": count,
+                    "exact_matches": count,
+                    "fuzzy_matches": 0,
+                    "grouped_matches": 0,
+                    "interpolated_words": 0,
+                    "ignored_scribe_words": 0,
+                    "coverage_ratio": 1.0 if count else 0.0,
+                },
+            }
+            source_mode = "scribe_only"
     except ElevenLabsScribeError as exc:
         write_event(
             "elevenlabs_scribe_error",
@@ -574,6 +608,7 @@ async def elevenlabs_transcribe(
         "engine": "elevenlabs-scribe-v2",
         "elapsed_s": elapsed,
         "master_word_count": metrics.get("master_word_count"),
+        "source_mode": source_mode,
         "scribe": scribe,
         "words": mapped.get("words") or [],
         "metrics": metrics,

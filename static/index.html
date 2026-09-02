@@ -60,6 +60,17 @@
           </div>
         </div>
 
+        <section id="jobMetricsCard" class="job-metrics hidden">
+          <div class="section-head">
+            <div>
+              <strong>📊 Métricas automáticas del trabajo</strong>
+              <div class="hint">BASE v2 · recursos + anchors + máscara vocal + semáforo de calidad.</div>
+            </div>
+            <span id="jobQualityBadge" class="badge">Sin resultado</span>
+          </div>
+          <div id="jobMetricsGrid" class="metrics-grid"></div>
+        </section>
+
         <div id="jsonPanel" class="json-panel hidden">
           <textarea id="timingJson" rows="8" spellcheck="false" placeholder='{"words":[{"text":"YO","start":12.31,"end":12.60}]}'></textarea>
           <div class="actions-row compact">
@@ -153,10 +164,10 @@
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>#</th><th>Línea</th><th>Palabra maestra</th><th>Inicio</th><th>Fin</th><th>Duración</th></tr>
+              <tr><th>#</th><th>Línea</th><th>QA</th><th>Palabra maestra</th><th>Inicio</th><th>Fin</th><th>Duración</th></tr>
             </thead>
             <tbody id="timingsBody">
-              <tr><td colspan="6" class="empty">Todavía no hay timings.</td></tr>
+              <tr><td colspan="7" class="empty">Todavía no hay timings.</td></tr>
             </tbody>
           </table>
         </div>

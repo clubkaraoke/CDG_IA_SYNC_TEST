@@ -488,6 +488,89 @@ def build_line_windows(
         windows[i]["window_span_s"] = round(max(0.0, e - s), 3)
     return windows
 
+def build_rms_activity(
+    waveform: torch.Tensor,
+    sample_rate: int,
+) -> tuple[torch.Tensor, float, dict[str, Any]]:
+    frame = max(160, int(sample_rate * RMS_FRAME_MS / 1000))
+    hop = max(80, int(sample_rate * RMS_HOP_MS / 1000))
+    x = waveform.float().unsqueeze(0)
+    if x.shape[-1] < frame:
+        states = torch.full((1,), 2, dtype=torch.uint8)
+        return states, hop / sample_rate, {
+            "frame_ms": RMS_FRAME_MS,
+            "hop_ms": RMS_HOP_MS,
+            "threshold_db": None,
+            "active_ratio": 1.0,
+            "ambiguous_ratio": 0.0,
+            "silent_ratio": 0.0,
+        }
+
+    power = F.avg_pool1d(x.pow(2), kernel_size=frame, stride=hop).squeeze(0).squeeze(0)
+    rms = torch.sqrt(torch.clamp(power, min=1e-12))
+    db = 20.0 * torch.log10(torch.clamp(rms, min=1e-8))
+
+    noise_p20 = float(torch.quantile(db, 0.20).item())
+    signal_p90 = float(torch.quantile(db, 0.90).item())
+    threshold_db = max(noise_p20 + 10.0, signal_p90 - 30.0)
+    threshold_db = max(-75.0, min(-35.0, threshold_db))
+    ambiguous_db = threshold_db - 8.0
+
+    states = torch.zeros(db.shape[0], dtype=torch.uint8)
+    states[db >= ambiguous_db] = 1
+    states[db >= threshold_db] = 2
+
+    # Bridge very short dropouts so consonants/breaths do not split one sung phrase.
+    vals = states.tolist()
+    max_gap = max(1, int(0.18 / (hop / sample_rate)))
+    i = 0
+    while i < len(vals):
+        if vals[i] != 0:
+            i += 1
+            continue
+        j = i
+        while j < len(vals) and vals[j] == 0:
+            j += 1
+        if i > 0 and j < len(vals) and (j - i) <= max_gap:
+            for k in range(i, j):
+                vals[k] = 1
+        i = j
+    states = torch.tensor(vals, dtype=torch.uint8)
+
+    total = max(1, states.numel())
+    active = int((states == 2).sum().item())
+    ambiguous = int((states == 1).sum().item())
+    silent = total - active - ambiguous
+    return states, hop / sample_rate, {
+        "frame_ms": RMS_FRAME_MS,
+        "hop_ms": RMS_HOP_MS,
+        "noise_p20_db": round(noise_p20, 2),
+        "signal_p90_db": round(signal_p90, 2),
+        "threshold_db": round(threshold_db, 2),
+        "ambiguous_threshold_db": round(ambiguous_db, 2),
+        "active_ratio": round(active / total, 3),
+        "ambiguous_ratio": round(ambiguous / total, 3),
+        "silent_ratio": round(silent / total, 3),
+    }
+
+
+def vocal_support_for_range(
+    start: float,
+    end: float,
+    states: torch.Tensor,
+    hop_s: float,
+) -> float:
+    if states.numel() == 0 or hop_s <= 0:
+        return 1.0
+    i1 = max(0, min(states.numel() - 1, int(start / hop_s)))
+    i2 = max(i1 + 1, min(states.numel(), int(math.ceil(max(start + 0.02, end) / hop_s))))
+    seg = states[i1:i2].float()
+    if seg.numel() == 0:
+        return 1.0
+    # 0=silence, 1=ambiguous, 2=active.
+    return float((seg / 2.0).mean().item())
+
+
 @dataclass
 class AlignmentResources:
     model: torch.nn.Module
@@ -548,6 +631,8 @@ def align_line(
     window: dict[str, Any],
     line: dict[str, Any],
     master_words: list[dict[str, Any]],
+    vocal_states: torch.Tensor | None = None,
+    vocal_hop_s: float | None = None,
 ) -> tuple[dict[int, dict[str, Any]], list[str]]:
     s = float(window["start"])
     e = float(window["end"])
@@ -564,6 +649,18 @@ def align_line(
     with torch.inference_mode():
         emissions, _ = resources.model(chunk)
         log_probs = torch.log_softmax(emissions, dim=-1)
+
+    if vocal_states is not None and vocal_hop_s and vocal_states.numel() > 0:
+        frame_count = log_probs.shape[1]
+        frame_times = s + (torch.arange(frame_count, dtype=torch.float32) + 0.5) * ((e - s) / max(1, frame_count))
+        mask_idx = torch.clamp((frame_times / vocal_hop_s).long(), 0, vocal_states.numel() - 1)
+        frame_states = vocal_states[mask_idx]
+        silent = frame_states == 0
+        ambiguous = frame_states == 1
+        if silent.any():
+            log_probs[0, silent, 1:] -= CTC_SILENCE_PENALTY
+        if ambiguous.any():
+            log_probs[0, ambiguous, 1:] -= CTC_AMBIGUOUS_PENALTY
 
     targets = torch.tensor([token_ids], dtype=torch.int32)
     try:
@@ -590,11 +687,17 @@ def align_line(
         start = s + min(span.start for span in wspans) * frame_seconds
         end = s + max(span.end for span in wspans) * frame_seconds
         score_values = [float(span.score) for span in wspans]
+        final_end = max(start + 0.04, end)
         result[wi] = {
             "start": round(start, 3),
-            "end": round(max(start + 0.04, end), 3),
+            "end": round(final_end, 3),
             "confidence": round(sum(score_values) / max(1, len(score_values)), 3),
         }
+        if vocal_states is not None and vocal_hop_s:
+            result[wi]["vocal_support"] = round(
+                vocal_support_for_range(start, final_end, vocal_states, vocal_hop_s),
+                3,
+            )
     return result, warnings
 
 

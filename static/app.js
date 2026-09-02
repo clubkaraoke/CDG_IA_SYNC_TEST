@@ -567,6 +567,10 @@ masterLyrics.addEventListener("input", () => {
 
 syncBtn.addEventListener("click", async () => {
   clearError();
+  state.lastRawResult = null;
+  state.lastApplyWarnings = [];
+  timingJson.value = "";
+  setTimingSource("none");
   parseMasterLyrics();
 
   if (!audioInput.files.length) {

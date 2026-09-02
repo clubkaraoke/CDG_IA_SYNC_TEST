@@ -23,6 +23,10 @@ const seek = $("seek");
 const timeNow = $("timeNow");
 const timeTotal = $("timeTotal");
 const previewStatus = $("previewStatus");
+const timingSourceBadge = $("timingSourceBadge");
+const refreshLogBtn = $("refreshLogBtn");
+const copyLogBtn = $("copyLogBtn");
+const diagLog = $("diagLog");
 const pv = $("pv");
 const pvx = pv.getContext("2d");
 const pvInfo = $("pvInfo");
@@ -39,6 +43,10 @@ const state = {
   linesPerPage: 6,
   fontSize: 18,
   activeWord: -1,
+  timingSource: "none",
+  clientLogs: [],
+  lastRawResult: null,
+  lastApplyWarnings: [],
 };
 
 function clamp(v, a, b) {
@@ -52,6 +60,80 @@ function showError(message) {
 
 function clearError() {
   errorCard.classList.add("hidden");
+}
+
+function logClient(level, event, message, details = null) {
+  const row = {
+    ts: new Date().toISOString(),
+    source: "browser",
+    level,
+    event,
+    message,
+    details,
+  };
+  state.clientLogs.push(row);
+  if (state.clientLogs.length > 300) state.clientLogs.shift();
+  renderDiagnosticLog();
+}
+
+function setTimingSource(source, detail = "") {
+  state.timingSource = source;
+  timingSourceBadge.classList.remove("ok", "warn");
+  if (source === "ai") {
+    timingSourceBadge.textContent = detail ? `FUENTE: IA REAL · ${detail}` : "FUENTE: IA REAL";
+    timingSourceBadge.classList.add("ok");
+  } else if (source === "demo") {
+    timingSourceBadge.textContent = "FUENTE: DEMO";
+    timingSourceBadge.classList.add("warn");
+  } else if (source === "json") {
+    timingSourceBadge.textContent = "FUENTE: JSON MANUAL";
+    timingSourceBadge.classList.add("warn");
+  } else if (source === "ai-error") {
+    timingSourceBadge.textContent = "FUENTE: IA REAL · ERROR AL APLICAR";
+    timingSourceBadge.classList.add("warn");
+  } else {
+    timingSourceBadge.textContent = "FUENTE: NINGUNA";
+  }
+}
+
+async function fetchServerLogs() {
+  try {
+    const payload = await apiJson("api/logs?limit=120");
+    return Array.isArray(payload.events) ? payload.events : [];
+  } catch (e) {
+    return [{
+      ts: new Date().toISOString(),
+      source: "browser",
+      level: "error",
+      event: "server_logs_unavailable",
+      message: e.message || String(e),
+    }];
+  }
+}
+
+async function renderDiagnosticLog() {
+  if (!diagLog) return;
+  const server = await fetchServerLogs();
+  const combined = [
+    ...server.map(r => ({ source: "ovh", ...r })),
+    ...state.clientLogs,
+  ].sort((a, b) => String(a.ts || "").localeCompare(String(b.ts || "")));
+
+  const lines = combined.slice(-180).map((r) => {
+    const details = r.details ? " " + JSON.stringify(r.details) : "";
+    return `[${r.ts || "?"}] [${String(r.source || "?").toUpperCase()}] [${String(r.level || "info").toUpperCase()}] ${r.event || "event"} :: ${r.message || ""}${details}`;
+  });
+  diagLog.textContent = lines.length ? lines.join("\n") : "Sin eventos todavía.";
+}
+
+async function copyDiagnosticLog() {
+  await renderDiagnosticLog();
+  try {
+    await navigator.clipboard.writeText(diagLog.textContent || "");
+    logClient("info", "log_copied", "Log copiado al portapapeles.");
+  } catch (e) {
+    showError("No se pudo copiar el log: " + (e.message || e));
+  }
 }
 
 
@@ -140,7 +222,10 @@ function clearTimings() {
   });
   state.timingsReady = false;
   state.activeWord = -1;
+  state.lastRawResult = null;
+  state.lastApplyWarnings = [];
   timingJson.value = "";
+  setTimingSource("none");
   renderTable();
   updatePreviewStatus();
   drawPreview();
@@ -161,7 +246,7 @@ function updatePreviewStatus() {
   }
 }
 
-function applyTimingArray(inputWords) {
+function applyTimingArray(inputWords, options = {}) {
   parseMasterLyrics();
   clearError();
 
@@ -175,31 +260,65 @@ function applyTimingArray(inputWords) {
     throw new Error(`La letra maestra tiene ${state.words.length} palabras, pero el JSON trae ${inputWords.length}. No aplicaré timings incompletos para evitar desplazar palabras.`);
   }
 
+  const warnings = [];
   let lastStart = -1;
+
   inputWords.forEach((tw, i) => {
     const start = Number(tw.start);
     const end = Number(tw.end);
+
     if (!Number.isFinite(start) || !Number.isFinite(end)) {
-      throw new Error(`Timing inválido en palabra #${i + 1}.`);
+      throw new Error(`Timing inválido en palabra #${i + 1} (${state.words[i].text}).`);
     }
     if (start < 0 || end < start) {
-      throw new Error(`Rango inválido en palabra #${i + 1}: ${start} → ${end}.`);
+      throw new Error(`Rango inválido en palabra #${i + 1} (${state.words[i].text}): ${start} → ${end}.`);
     }
+
     if (start < lastStart) {
-      throw new Error(`Los timings dejan de ser cronológicos en la palabra #${i + 1}.`);
+      warnings.push({
+        index: i,
+        word: state.words[i].text,
+        previous_start: lastStart,
+        start,
+        type: "non_monotonic_start",
+      });
     }
-    lastStart = start;
+    lastStart = Math.max(lastStart, start);
   });
 
   inputWords.forEach((tw, i) => {
     state.words[i].start = Number(tw.start);
     state.words[i].end = Number(tw.end);
+    state.words[i].confidence = tw.confidence ?? null;
+    state.words[i].interpolated = Boolean(tw.interpolated);
   });
 
   state.timingsReady = true;
+  state.lastApplyWarnings = warnings;
+
+  if (options.source) setTimingSource(options.source, warnings.length ? `${warnings.length} warning(s)` : "");
+
   renderTable();
   updatePreviewStatus();
   drawPreview();
+
+  if (warnings.length) {
+    logClient(
+      "warn",
+      "timings_applied_with_warnings",
+      `Se aplicaron ${inputWords.length} palabras con ${warnings.length} anomalías de orden. El resultado IA NO fue descartado.`,
+      { warnings: warnings.slice(0, 20) }
+    );
+  } else {
+    logClient(
+      "info",
+      "timings_applied",
+      `Se aplicaron ${inputWords.length} palabras correctamente.`,
+      { source: options.source || "unknown" }
+    );
+  }
+
+  return { warnings };
 }
 
 function generateDemoTimings() {
@@ -246,8 +365,11 @@ function generateDemoTimings() {
     return { text: state.words[u.index].text, start, end };
   });
 
-  applyTimingArray(result);
-  timingJson.value = JSON.stringify({ engine: "demo", words: result }, null, 2);
+  const payload = { engine: "demo", words: result };
+  state.lastRawResult = payload;
+  timingJson.value = JSON.stringify(payload, null, 2);
+  applyTimingArray(result, { source: "demo" });
+  logClient("info", "demo_timing_generated", "Se generaron timings DEMO; no corresponden a IA real.");
 }
 
 function renderTable() {
@@ -280,15 +402,26 @@ function escapeHtml(s) {
 }
 
 function currentWordIndex(t) {
-  let last = -1;
+  let active = -1;
+  let bestStarted = -1;
+  let bestStart = -Infinity;
+
   for (let i = 0; i < state.words.length; i++) {
     const w = state.words[i];
     if (w.start === null || w.end === null) continue;
-    if (t >= w.start && t <= w.end) return i;
-    if (t >= w.start) last = i;
-    if (w.start > t) break;
+
+    if (t >= w.start && t <= w.end) {
+      if (w.start >= bestStart) {
+        bestStart = w.start;
+        active = i;
+      }
+    }
+    if (t >= w.start && w.start >= bestStart) {
+      bestStart = w.start;
+      bestStarted = i;
+    }
   }
-  return last;
+  return active >= 0 ? active : bestStarted;
 }
 
 function currentPage(t) {
@@ -472,9 +605,18 @@ syncBtn.addEventListener("click", async () => {
     form.append("audio", audioInput.files[0]);
     form.append("lyrics", masterLyrics.value);
 
+    const requestId = "lab-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+    logClient("info", "ia_request_started", "Enviando audio + letra al OVH.", {
+      request_id: requestId,
+      filename: audioInput.files[0].name,
+      bytes: audioInput.files[0].size,
+      master_words: state.words.length,
+    });
+
     const result = await apiJson("api/local/align", {
       method: "POST",
       body: form,
+      headers: { "X-Debug-Request-ID": requestId },
     });
 
     clearInterval(ticker);
@@ -486,18 +628,33 @@ syncBtn.addEventListener("click", async () => {
     aiMeta.textContent =
       `${metrics.aligned_words ?? 0} alineadas · ${metrics.interpolated_words ?? 0} interpoladas · ${result.elapsed_s ?? "—"} s · anclajes ${Math.round((anchors.master_anchor_ratio || 0) * 100)}%`;
 
-    applyTimingArray(result.words || []);
+    state.lastRawResult = result;
     timingJson.value = JSON.stringify(result, null, 2);
+    jsonPanel.classList.remove("hidden");
+    logClient("info", "ia_result_received", "El navegador recibió el JSON real de la IA.", {
+      request_id: requestId,
+      words: Array.isArray(result.words) ? result.words.length : null,
+      metrics,
+    });
 
-    previewStatus.textContent = metrics.interpolated_words
-      ? `IA lista · ${metrics.interpolated_words} revisar`
-      : "IA lista ✓";
+    const applied = applyTimingArray(result.words || [], { source: "ai" });
+
+    previewStatus.textContent = applied.warnings.length
+      ? `IA REAL · ${applied.warnings.length} warning(s)`
+      : (metrics.interpolated_words ? `IA REAL · ${metrics.interpolated_words} revisar` : "IA REAL lista ✓");
     previewStatus.classList.add("ok");
   } catch (e) {
     clearInterval(ticker);
     aiProgressBar.style.width = "100%";
-    aiStatus.textContent = "La sincronización falló";
+    aiStatus.textContent = state.lastRawResult ? "La IA respondió, pero falló la aplicación" : "La sincronización falló";
     aiMeta.textContent = "";
+    if (state.lastRawResult) {
+      setTimingSource("ai-error");
+      jsonPanel.classList.remove("hidden");
+    }
+    logClient("error", "ia_apply_or_request_error", e.message || String(e), {
+      raw_result_received: Boolean(state.lastRawResult),
+    });
     showError(e.message || String(e));
   } finally {
     demoBtn.disabled = false;
@@ -515,8 +672,11 @@ applyJsonBtn.addEventListener("click", () => {
   clearError();
   try {
     const payload = JSON.parse(timingJson.value);
-    applyTimingArray(payload.words);
+    state.lastRawResult = payload;
+    const source = payload.engine === "demo" ? "demo" : "json";
+    applyTimingArray(payload.words, { source });
   } catch (e) {
+    logClient("error", "manual_json_apply_error", e.message || String(e));
     showError(e.message || String(e));
   }
 });
@@ -550,10 +710,15 @@ seek.addEventListener("input", () => {
   if (Number.isFinite(v)) player.currentTime = v;
 });
 
+refreshLogBtn.addEventListener("click", renderDiagnosticLog);
+copyLogBtn.addEventListener("click", copyDiagnosticLog);
+
 window.addEventListener("beforeunload", () => {
   if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
 });
 
 parseMasterLyrics();
+setTimingSource("none");
 checkLocalEngine();
+renderDiagnosticLog();
 requestAnimationFrame(animationLoop);

@@ -11,6 +11,9 @@ const aiProgress = $("aiProgress");
 const aiProgressBar = $("aiProgressBar");
 const aiStatus = $("aiStatus");
 const aiMeta = $("aiMeta");
+const jobMetricsCard = $("jobMetricsCard");
+const jobMetricsGrid = $("jobMetricsGrid");
+const jobQualityBadge = $("jobQualityBadge");
 const toggleJsonBtn = $("toggleJsonBtn");
 const jsonPanel = $("jsonPanel");
 const timingJson = $("timingJson");
@@ -49,6 +52,7 @@ const state = {
   lastRawResult: null,
   lastAiResult: null,
   lastApplyWarnings: [],
+  lastMetrics: null,
 };
 
 function clamp(v, a, b) {
@@ -179,6 +183,63 @@ function fmtSec(v) {
   return Number(v).toFixed(3) + " s";
 }
 
+function qaLabel(status) {
+  if (status === "green") return "🟢 VERDE";
+  if (status === "yellow") return "🟡 AMARILLO";
+  if (status === "red") return "🔴 ROJO";
+  return "—";
+}
+
+function renderJobMetrics(result) {
+  if (!jobMetricsCard || !jobMetricsGrid || !jobQualityBadge) return;
+  const m = result?.metrics || {};
+  const a = result?.rough_asr || {};
+  const mask = result?.vocal_mask || {};
+  const counts = m.line_status_counts || {};
+  const totalLines = (counts.green || 0) + (counts.yellow || 0) + (counts.red || 0);
+
+  state.lastMetrics = m;
+  jobMetricsCard.classList.remove("hidden");
+  jobQualityBadge.classList.remove("ok", "warn", "bad");
+
+  if ((counts.red || 0) > 0) {
+    jobQualityBadge.textContent = `🔴 ${counts.red} línea(s) roja(s)`;
+    jobQualityBadge.classList.add("bad");
+  } else if ((counts.yellow || 0) > 0) {
+    jobQualityBadge.textContent = `🟡 ${counts.yellow} línea(s) a revisar`;
+    jobQualityBadge.classList.add("warn");
+  } else if (totalLines) {
+    jobQualityBadge.textContent = "🟢 Todo confiable";
+    jobQualityBadge.classList.add("ok");
+  } else {
+    jobQualityBadge.textContent = "Sin QA";
+  }
+
+  const cells = [
+    ["Tiempo", result?.elapsed_s != null ? `${Number(result.elapsed_s).toFixed(2)} s` : "—"],
+    ["RAM pico", m.peak_rss_gb != null ? `${m.peak_rss_gb} GB` : "—"],
+    ["CPU pico", m.peak_cpu_pct != null ? `${m.peak_cpu_pct}%` : "—"],
+    ["Palabras", result?.master_word_count ?? "—"],
+    ["Anchors", a.master_anchor_count != null ? `${a.master_anchor_count} · ${Math.round((a.master_anchor_ratio || 0) * 100)}%` : "—"],
+    ["Anchors descartados", m.anchors_rejected ?? 0],
+    ["Conf < 0.20", m.low_confidence_lt_020 ?? 0],
+    ["Conf < 0.10", m.low_confidence_lt_010 ?? 0],
+    ["Huecos sospechosos", m.suspicious_gaps ?? 0],
+    ["Huecos extremos", m.extreme_gaps ?? 0],
+    ["Líneas verdes", counts.green ?? 0],
+    ["Líneas amarillas", counts.yellow ?? 0],
+    ["Líneas rojas", counts.red ?? 0],
+    ["Máscara silenciosa", mask.silent_ratio != null ? `${Math.round(mask.silent_ratio * 100)}%` : "—"],
+  ];
+
+  jobMetricsGrid.innerHTML = cells.map(([k, v]) => `
+    <div class="metric-cell">
+      <span>${escapeHtml(String(k))}</span>
+      <strong>${escapeHtml(String(v))}</strong>
+    </div>
+  `).join("");
+}
+
 function parseMasterLyrics() {
   const rawLines = masterLyrics.value.replace(/\r/g, "").split("\n");
   const lines = [];
@@ -227,7 +288,14 @@ function clearTimings() {
   state.lastRawResult = null;
   state.lastAiResult = null;
   state.lastApplyWarnings = [];
+  state.lastMetrics = null;
   timingJson.value = "";
+  if (jobMetricsCard) jobMetricsCard.classList.add("hidden");
+  if (jobMetricsGrid) jobMetricsGrid.innerHTML = "";
+  if (jobQualityBadge) {
+    jobQualityBadge.textContent = "Sin resultado";
+    jobQualityBadge.classList.remove("ok", "warn", "bad");
+  }
   setTimingSource("none");
   renderTable();
   updatePreviewStatus();
@@ -294,6 +362,9 @@ function applyTimingArray(inputWords, options = {}) {
     state.words[i].end = Number(tw.end);
     state.words[i].confidence = tw.confidence ?? null;
     state.words[i].interpolated = Boolean(tw.interpolated);
+    state.words[i].vocalSupport = tw.vocal_support ?? null;
+    state.words[i].qaStatus = tw.qa_status ?? null;
+    state.words[i].qaScore = tw.qa_score ?? null;
   });
 
   state.timingsReady = true;
@@ -386,15 +457,19 @@ function generateDemoTimings() {
 
 function renderTable() {
   if (!state.words.length) {
-    timingsBody.innerHTML = '<tr><td colspan="6" class="empty">Pega una letra maestra para preparar las palabras.</td></tr>';
+    timingsBody.innerHTML = '<tr><td colspan="7" class="empty">Pega una letra maestra para preparar las palabras.</td></tr>';
     return;
   }
 
   timingsBody.innerHTML = state.words.map((w, i) => {
     const dur = w.start !== null && w.end !== null ? w.end - w.start : null;
+    const qa = w.qaStatus || null;
+    const qaClass = qa ? ` qa-${qa}` : "";
+    const qaTitle = w.qaScore != null ? ` title="Score QA: ${w.qaScore}/100"` : "";
     return `<tr data-row="${i}">
       <td>${i + 1}</td>
       <td>${w.lineIndex + 1}</td>
+      <td><span class="qa-pill${qaClass}"${qaTitle}>${qaLabel(qa)}</span></td>
       <td class="master-word">${escapeHtml(w.text)}</td>
       <td>${fmtSec(w.start)}</td>
       <td>${fmtSec(w.end)}</td>
@@ -646,6 +721,7 @@ syncBtn.addEventListener("click", async () => {
 
     state.lastRawResult = result;
     state.lastAiResult = result;
+    renderJobMetrics(result);
     restoreAiBtn.classList.remove("hidden");
     timingJson.value = JSON.stringify(result, null, 2);
     jsonPanel.classList.remove("hidden");
@@ -688,6 +764,7 @@ restoreAiBtn.addEventListener("click", () => {
     return showError("No hay un resultado IA real guardado en esta sesión.");
   }
   state.lastRawResult = state.lastAiResult;
+  renderJobMetrics(state.lastAiResult);
   timingJson.value = JSON.stringify(state.lastAiResult, null, 2);
   jsonPanel.classList.remove("hidden");
   const applied = applyTimingArray(state.lastAiResult.words, { source: "ai" });

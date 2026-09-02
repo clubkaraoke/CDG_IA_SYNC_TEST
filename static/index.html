@@ -47,13 +47,20 @@
         </div>
 
         <div class="actions-row">
-          <button id="syncBtn">🤖 BASE v2 local</button>
-          <button id="scribeBtn" class="secondary">✨ ElevenLabs Scribe v2</button>
+          <button id="baseSelectBtn">🤖 BASE v2 local ✓</button>
+          <button id="scribeSelectBtn" class="secondary">✨ ElevenLabs Scribe v2</button>
+          <button id="runSelectedBtn">▶ Procesar con BASE v2</button>
+
+          <!-- Acciones internas: los botones visibles de arriba SOLO seleccionan motor. -->
+          <button id="syncBtn" class="hidden" aria-hidden="true" tabindex="-1">Ejecutar BASE</button>
+          <button id="scribeBtn" class="hidden" aria-hidden="true" tabindex="-1">Ejecutar Scribe</button>
+
           <button id="demoBtn" class="secondary">Timing demo</button>
           <button id="restoreAiBtn" class="secondary hidden">↩ Restaurar IA real</button>
           <button id="toggleJsonBtn" class="secondary">Pegar JSON de timings</button>
           <button id="clearBtn" class="ghost">Limpiar timings</button>
         </div>
+        <div class="hint">1) Elige el motor. 2) Pulsa “Procesar”. El botón seleccionado queda resaltado.</div>
         <div id="aiProgress" class="ai-progress hidden">
           <div class="progress-track"><div id="aiProgressBar" class="progress-fill"></div></div>
           <div class="progress-meta">

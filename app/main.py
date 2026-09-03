@@ -51,7 +51,10 @@ async def diagnostic_request_log(request: Request, call_next):
     request_id = request.headers.get("x-debug-request-id")
     is_transcribe = request.method == "POST" and request.url.path.endswith("/api/transcribe")
     is_local_align = request.method == "POST" and request.url.path.endswith("/api/local/align")
-    is_elevenlabs = request.method == "POST" and request.url.path.endswith("/api/elevenlabs/transcribe")
+    is_elevenlabs = request.method == "POST" and (
+        request.url.path.endswith("/api/elevenlabs/transcribe")
+        or request.url.path.endswith("/api/elevenlabs/forced-align")
+    )
     is_upload = is_transcribe or is_local_align or is_elevenlabs
     started = time.monotonic()
     if is_upload:
@@ -613,6 +616,69 @@ async def elevenlabs_transcribe(
         "words": mapped.get("words") or [],
         "metrics": metrics,
     }
+
+
+@app.post("/api/elevenlabs/forced-align")
+async def elevenlabs_forced_align(
+    request: Request,
+    audio: UploadFile = File(...),
+    text: str = Form(...),
+) -> dict[str, Any]:
+    request_id = request.headers.get("x-debug-request-id")
+    filename = audio.filename or "audio"
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
+        raise HTTPException(400, f"Formato no permitido: {suffix or 'sin extensión'}")
+    if not text.strip():
+        raise HTTPException(400, "Falta el texto del bloque.")
+    if not elevenlabs.is_configured():
+        raise HTTPException(503, "ElevenLabs no está configurado en el LAB.")
+
+    write_event(
+        "elevenlabs_forced_alignment_started",
+        request_id=request_id,
+        filename=filename,
+        message="Alineando bloque con ElevenLabs Forced Alignment.",
+        details={"words": len(text.split())},
+    )
+    started = time.monotonic()
+    try:
+        result = await elevenlabs.forced_align(audio, text=text)
+    except ElevenLabsScribeError as exc:
+        write_event(
+            "elevenlabs_forced_alignment_error",
+            level="error",
+            request_id=request_id,
+            filename=filename,
+            message=str(exc),
+            details={"elapsed_s": round(time.monotonic() - started, 3)},
+        )
+        raise HTTPException(502, str(exc)) from exc
+    except Exception as exc:
+        write_event(
+            "elevenlabs_forced_alignment_error",
+            level="error",
+            request_id=request_id,
+            filename=filename,
+            message=str(exc),
+            details={"elapsed_s": round(time.monotonic() - started, 3)},
+        )
+        raise HTTPException(502, f"Falló ElevenLabs Forced Alignment: {exc}") from exc
+
+    elapsed = round(time.monotonic() - started, 3)
+    write_event(
+        "elevenlabs_forced_alignment_done",
+        request_id=request_id,
+        filename=filename,
+        message="ElevenLabs Forced Alignment terminó.",
+        details={
+            "elapsed_s": elapsed,
+            "word_count": result.get("word_count"),
+            "loss": result.get("loss"),
+        },
+    )
+    return {"ok": True, "elapsed_s": elapsed, **result}
+
 
 # ---------------------------------------------------------------------------
 # Motor local CPU · Whisper + CTC español

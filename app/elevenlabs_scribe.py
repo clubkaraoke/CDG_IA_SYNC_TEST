@@ -145,6 +145,75 @@ class ElevenLabsScribeClient:
             "words": words,
         }
 
+    async def forced_align(self, audio: UploadFile, *, text: str) -> dict[str, Any]:
+        """Alinea un texto AUTORITATIVO contra audio usando ElevenLabs Forced Alignment."""
+        key = self.api_key()
+        if not key:
+            raise ElevenLabsScribeError(
+                "ElevenLabs no está configurado. Falta ELEVENLABS_API_KEY en el servidor."
+            )
+        clean_text = str(text or "").strip()
+        if not clean_text:
+            raise ElevenLabsScribeError("Falta el texto que se debe alinear.")
+
+        await audio.seek(0)
+        files = {
+            "file": (
+                audio.filename or "audio",
+                audio.file,
+                audio.content_type or "application/octet-stream",
+            )
+        }
+        data = {"text": clean_text}
+        timeout = httpx.Timeout(connect=30.0, read=1200.0, write=1200.0, pool=30.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/v1/forced-alignment",
+                headers={"xi-api-key": key},
+                files=files,
+                data=data,
+            )
+
+        if response.status_code >= 400:
+            detail = response.text[:1200]
+            try:
+                payload = response.json()
+                detail = (
+                    payload.get("detail")
+                    or payload.get("message")
+                    or payload.get("error")
+                    or detail
+                )
+            except Exception:
+                pass
+            raise ElevenLabsScribeError(
+                f"ElevenLabs Forced Alignment respondió HTTP {response.status_code}: {detail}"
+            )
+
+        payload = response.json()
+        words = []
+        for item in payload.get("words") or []:
+            if not isinstance(item, dict):
+                continue
+            token = str(item.get("text") or "").strip()
+            start = _as_float(item.get("start"))
+            end = _as_float(item.get("end"))
+            if not token or start is None or end is None or end < start:
+                continue
+            words.append({
+                "text": token,
+                "start": round(start, 6),
+                "end": round(end, 6),
+                "loss": _as_float(item.get("loss")),
+            })
+        return {
+            "engine": "elevenlabs-forced-alignment",
+            "text": clean_text,
+            "word_count": len(words),
+            "words": words,
+            "loss": _as_float(payload.get("loss")),
+        }
+
 
 def _master_tokens(lyrics: str) -> list[_Token]:
     return [

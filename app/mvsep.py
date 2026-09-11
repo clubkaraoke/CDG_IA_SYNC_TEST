@@ -12,7 +12,7 @@ class MVSEPError(RuntimeError):
 
 
 class MVSEPClient:
-    """Cliente mínimo para la prueba Parakeet v3 de MVSEP."""
+    """Cliente MVSEP usado por los laboratorios DJGABO."""
 
     def __init__(self) -> None:
         self.base_url = os.getenv("MVSEP_API_BASE", "https://mvsep.com/api").rstrip("/")
@@ -48,18 +48,10 @@ class MVSEPClient:
             raise MVSEPError("Falta configurar el API token de MVSEP.")
         return token
 
-    async def create_parakeet_job(self, upload_file: Any) -> dict[str, Any]:
+    async def _create_job(self, upload_file: Any, data: dict[str, str]) -> dict[str, Any]:
         token = self.ensure_configured()
         await upload_file.seek(0)
-
-        data = {
-            "api_token": token,
-            "sep_type": "64",
-            "add_opt1": "0",
-            "add_opt2": "1",
-            "output_format": "0",
-            "is_demo": "0",
-        }
+        body = {"api_token": token, **data}
         files = {
             "audiofile": (
                 upload_file.filename or "audio.wav",
@@ -67,21 +59,44 @@ class MVSEPClient:
                 upload_file.content_type or "application/octet-stream",
             )
         }
-
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(f"{self.base_url}/separation/create", data=data, files=files)
-
+            response = await client.post(f"{self.base_url}/separation/create", data=body, files=files)
         try:
             payload = response.json()
         except Exception as exc:
             raise MVSEPError(f"MVSEP devolvió una respuesta no JSON ({response.status_code})") from exc
-
         if response.is_error:
             message = payload.get("data", {}).get("message") if isinstance(payload, dict) else None
             raise MVSEPError(message or f"Error HTTP {response.status_code} al crear el trabajo")
         if not payload.get("success"):
             raise MVSEPError(payload.get("data", {}).get("message", "MVSEP rechazó el trabajo"))
         return payload
+
+    async def create_parakeet_job(self, upload_file: Any) -> dict[str, Any]:
+        return await self._create_job(upload_file, {
+            "sep_type": "64",
+            "add_opt1": "0",
+            "add_opt2": "1",
+            "output_format": "0",
+            "is_demo": "0",
+        })
+
+    async def create_karaoke_job(self, upload_file: Any, model: int = 6) -> dict[str, Any]:
+        """Aísla lead/back vocals con MVSep Karaoke (sep_type 49).
+
+        add_opt1: modelo Karaoke (0..7)
+        add_opt2: 1 = extraer vocals primero, necesario para disponer de back vocals separado
+        output_format: 1 = WAV 16-bit
+        """
+        if model not in range(0, 8):
+            model = 6
+        return await self._create_job(upload_file, {
+            "sep_type": "49",
+            "add_opt1": str(model),
+            "add_opt2": "1",
+            "output_format": "1",
+            "is_demo": "0",
+        })
 
     async def get_queue_info(self) -> dict[str, Any]:
         token = self.ensure_configured()

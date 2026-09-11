@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import base64
+import gzip
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import HTMLResponse, Response
 
 from .mvsep import MVSEPClient, MVSEPError
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
+AUDIO_LAB_BUNDLE = STATIC_DIR / "audio_lab.html.gz.b64"
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus"}
 ALLOWED_MVSEP_HOSTS = {"mvsep.com", "www.mvsep.com", "de.mvsep.com", "de2.mvsep.com", "hk.mvsep.com", "mirror.mvsep.com"}
 
@@ -19,9 +22,17 @@ app = FastAPI(title="DJGABO Audio Lab Web", version="1.0.0")
 mvsep = MVSEPClient()
 
 
-@app.get("/")
-async def home() -> FileResponse:
-    return FileResponse(STATIC_DIR / "audio_lab.html")
+def _audio_lab_html() -> str:
+    try:
+        packed = base64.b64decode(AUDIO_LAB_BUNDLE.read_text(encoding="ascii").strip())
+        return gzip.decompress(packed).decode("utf-8")
+    except Exception as exc:
+        raise RuntimeError(f"No se pudo cargar el frontend Audio Lab: {exc}") from exc
+
+
+@app.get("/", response_class=HTMLResponse)
+async def home() -> HTMLResponse:
+    return HTMLResponse(_audio_lab_html(), headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/health")

@@ -16,6 +16,20 @@ services:
     depends_on:
       - cdg-ai-sync-cpu
 
+  audio-lab-web:
+    build: .
+    container_name: djgabo-audio-lab-web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MVSEP_TOKEN_FILE: /runtime/mvsep_token
+    volumes:
+      - ./runtime:/runtime
+    command: ["uvicorn", "app.audio_lab_app:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8099:8000"
+
   cdg-ai-sync-cpu:
     build:
       context: ./cpu_worker

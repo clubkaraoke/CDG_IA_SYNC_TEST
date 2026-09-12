@@ -1,0 +1,66 @@
+<style id="djgabo-layout-fix-style">
+  #djgaboWorkspace{
+    width:min(1560px,calc(100vw - 40px))!important;
+    max-width:none!important;
+    margin:18px 0 28px!important;
+    position:relative!important;
+    left:50%!important;
+    transform:translateX(-50%)!important;
+  }
+  body.djgabo-project-open #djgaboHistory{display:none!important}
+  body.djgabo-project-open #djgaboWorkspace{margin-top:18px!important}
+  body.djgabo-project-open #djgaboWorkspace~*{display:none!important}
+  body.djgabo-project-open #djgaboEditor{display:block!important}
+  body.djgabo-project-open #djgaboEditor .track{grid-template-columns:250px minmax(520px,1fr)!important}
+  body.djgabo-project-open #djgaboEditor .wave-wrap{min-height:138px!important}
+  body.djgabo-project-open #djgaboEditor canvas.wave{height:138px!important}
+  body.djgabo-project-open #djgaboEditor .proj-title{max-width:1050px!important;font-size:15px}
+  #djgaboZoomWarning{position:fixed;z-index:999999;left:50%;top:12px;transform:translateX(-50%);padding:10px 14px;border-radius:10px;border:1px solid #7b5cff;background:#171223;color:#fff;font:700 13px/1.2 system-ui,-apple-system,Segoe UI,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.45)}
+  @media(max-width:900px){
+    #djgaboWorkspace{width:calc(100vw - 16px)!important}
+    body.djgabo-project-open #djgaboEditor .track{grid-template-columns:1fr!important}
+  }
+</style>
+<script id="djgabo-layout-fix-patch">
+(() => {
+  if (window.__djgaboLayoutFixPatch) return;
+  window.__djgaboLayoutFixPatch = true;
+
+  function syncProjectMode(){
+    const editor=document.querySelector('#djgaboEditor');
+    const active=!!editor?.classList.contains('active');
+    document.body.classList.toggle('djgabo-project-open',active);
+    const close=document.querySelector('#djCloseProject');
+    if(close) close.textContent='← Volver al historial';
+  }
+
+  function watch(){
+    const editor=document.querySelector('#djgaboEditor');
+    if(!editor) return false;
+    syncProjectMode();
+    new MutationObserver(syncProjectMode).observe(editor,{attributes:true,attributeFilter:['class']});
+    return true;
+  }
+
+  function zoomWarning(){
+    if((window.devicePixelRatio||1) >= .70) return;
+    const box=document.createElement('div');
+    box.id='djgaboZoomWarning';
+    box.textContent='⚠ Chrome está muy alejado. Presiona Ctrl + 0 para volver al 100%.';
+    document.body.appendChild(box);
+    const clear=()=>{ if((window.devicePixelRatio||1)>=.70) box.remove(); };
+    window.addEventListener('resize',clear,{passive:true});
+    setTimeout(()=>box.remove(),12000);
+  }
+
+  function init(){
+    zoomWarning();
+    if(watch()) return;
+    const mo=new MutationObserver(()=>{ if(watch()) mo.disconnect(); });
+    mo.observe(document.documentElement,{childList:true,subtree:true});
+  }
+
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init,{once:true});
+  else init();
+})();
+</script>

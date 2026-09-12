@@ -12,6 +12,19 @@
   #djgaboMvsepProgress.dj-error{border-color:rgba(255,89,113,.42)}
   #djgaboMvsepProgress.dj-error .dj-fill{background:#ff5971}
   select[data-djgabo-model-locked="1"]{opacity:.88;cursor:not-allowed}
+
+  #djgaboMvsepOutputs{margin-top:10px;border:1px solid #2b3240;border-radius:10px;background:#0d1017;color:#f4f7fb;font:12px/1.35 system-ui,-apple-system,Segoe UI,sans-serif;overflow:hidden}
+  #djgaboMvsepOutputs[hidden]{display:none!important}
+  #djgaboMvsepOutputs .out-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid #242a35}
+  #djgaboMvsepOutputs .out-head strong{font-size:12px}
+  #djgaboMvsepOutputs .out-count{color:#9ca7b8}
+  #djgaboMvsepOutputs .out-list{display:grid;gap:1px;background:#242a35}
+  #djgaboMvsepOutputs .out-row{display:grid;grid-template-columns:minmax(190px,1fr) minmax(130px,.7fr) auto;align-items:center;gap:10px;padding:9px 12px;background:#10141c}
+  #djgaboMvsepOutputs .out-name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #djgaboMvsepOutputs .out-role{color:#aeb8c8}
+  #djgaboMvsepOutputs .out-badge{padding:3px 7px;border:1px solid #384152;border-radius:999px;color:#b8c2d2;white-space:nowrap}
+  #djgaboMvsepOutputs .out-badge.primary{border-color:rgba(43,210,142,.4);color:#55dfa8;background:rgba(43,210,142,.08)}
+  #djgaboMvsepOutputs .out-note{padding:8px 12px;color:#9ca7b8;border-top:1px solid #242a35}
 </style>
 <script id="djgabo-mvsep-progress-patch">
 (() => {
@@ -19,7 +32,7 @@
   window.__djgaboMvsepProgressPatch = true;
 
   let startedAt = 0, elapsedTimer = null, creepTimer = null, currentPct = 0;
-  let panel, titleEl, detailEl, fillEl, timeEl, processBtn;
+  let panel, titleEl, detailEl, fillEl, timeEl, processBtn, outputsPanel;
 
   const fmtElapsed = () => {
     if (!startedAt) return '00:00';
@@ -53,6 +66,57 @@
     return null;
   }
 
+  function mountOutputs(){
+    if (outputsPanel && document.body.contains(outputsPanel)) return outputsPanel;
+    outputsPanel = document.createElement('section');
+    outputsPanel.id = 'djgaboMvsepOutputs';
+    outputsPanel.hidden = true;
+    outputsPanel.innerHTML = '<div class="out-head"><strong>PISTAS DEVUELTAS POR MVSEP</strong><span class="out-count">0 pistas</span></div><div class="out-list"></div><div class="out-note">Se mostrarán todos los archivos que entregue MVSEP. Las pistas principales siguen cargándose en el editor.</div>';
+    if (panel?.parentElement) panel.insertAdjacentElement('afterend', outputsPanel);
+    return outputsPanel;
+  }
+
+  function roleLabel(role){
+    const labels = {
+      vocals_full: 'Voces completas',
+      voice: 'Voz principal',
+      back: 'Coros',
+      instrumental: 'Instrumental limpio',
+      back_instrumental: 'Instrumental + coros',
+      crowd: 'Público / aplausos',
+      other: 'Audio sin público'
+    };
+    return labels[role] || role || 'Extra';
+  }
+
+  function renderOutputs(payload){
+    const files = Array.isArray(payload?.files) ? payload.files : [];
+    const box = mountOutputs();
+    if (!box) return;
+    const list = box.querySelector('.out-list');
+    const count = box.querySelector('.out-count');
+    box.hidden = false;
+    count.textContent = `${files.length} pista${files.length === 1 ? '' : 's'}`;
+    list.innerHTML = '';
+    files.forEach((file, idx) => {
+      const row = document.createElement('div');
+      row.className = 'out-row';
+      const primary = ['voice','back','instrumental'].includes(file?.role);
+      row.innerHTML = `<div class="out-name"></div><div class="out-role"></div><div class="out-badge${primary ? ' primary' : ''}">${primary ? 'EDITOR PRINCIPAL' : 'RESULTADO MVSEP'}</div>`;
+      row.querySelector('.out-name').textContent = file?.name || `Pista ${idx + 1}`;
+      row.querySelector('.out-role').textContent = roleLabel(file?.role);
+      list.appendChild(row);
+    });
+  }
+
+  function clearOutputs(){
+    if (outputsPanel) {
+      outputsPanel.hidden = true;
+      const list = outputsPanel.querySelector('.out-list');
+      if (list) list.innerHTML = '';
+    }
+  }
+
   function mount(){
     lockDefinitiveModel();
     if (panel && document.body.contains(panel)) return true;
@@ -68,6 +132,7 @@
     timeEl = panel.querySelector('#djgaboMvsepTime');
     const row = processBtn.parentElement;
     if (row) row.insertAdjacentElement('afterend', panel); else processBtn.insertAdjacentElement('afterend', panel);
+    mountOutputs();
     return true;
   }
 
@@ -91,6 +156,7 @@
 
   function beginProcessing(){
     lockDefinitiveModel();
+    clearOutputs();
     startedAt = Date.now(); currentPct = 4; startElapsed();
     setProgress('Preparando archivo…', 4, 'Modelo fijo: BS RoFormer · MVSep Team. Iniciando envío.');
     stopCreep();
@@ -99,6 +165,7 @@
 
   function markSelected(file){
     lockDefinitiveModel();
+    clearOutputs();
     startedAt = 0; currentPct = 0; if (elapsedTimer) clearInterval(elapsedTimer); elapsedTimer = null; stopCreep();
     const mb = file && Number.isFinite(file.size) ? ` · ${(file.size/1024/1024).toFixed(1)} MB` : '';
     setProgress('✓ Archivo seleccionado', 0, `${file?.name || 'Audio'}${mb} · modelo: BS RoFormer · MVSep Team.`, 'ok');
@@ -119,7 +186,7 @@
     const real = pctFromPayload(p);
     if (/done|complete|completed|success|finished/.test(raw)) {
       stopCreep();
-      setProgress('MVSEP terminó · validando stems…', 94, 'Comprobando que existan Voz principal + Coros + Instrumental.');
+      setProgress('MVSEP terminó · leyendo todas las pistas…', 94, 'El panel ya no asume 3 archivos: mostrará todo lo que MVSEP haya generado.');
       return;
     }
     if (/error|fail|cancel/.test(raw)) { stopCreep(); setProgress('Error en MVSEP', Math.max(currentPct,20), `Estado: ${raw || 'error'}`, 'error'); return; }
@@ -174,10 +241,11 @@
       if (r.ok) {
         try {
           const p = await r.clone().json();
-          const roles = Array.isArray(p?.roles) ? p.roles.join(' + ') : 'voice + back + instrumental';
-          setProgress('✓ 3 stems confirmados', 97, `MVSEP devolvió: ${roles}. Cargando ondas…`, 'ok');
+          renderOutputs(p);
+          const n = Array.isArray(p?.files) ? p.files.length : 0;
+          setProgress(`✓ ${n} pista${n === 1 ? '' : 's'} recibida${n === 1 ? '' : 's'}`, 97, 'Todas las salidas de MVSEP están visibles. Voz principal + Coros + Instrumental se cargan en el editor.', 'ok');
         } catch(_) {
-          setProgress('✓ 3 stems confirmados', 97, 'Cargando Voz principal + Coros + Instrumental…', 'ok');
+          setProgress('✓ Resultados recibidos', 97, 'Cargando pistas en el panel…', 'ok');
         }
       } else {
         stopCreep();
@@ -185,7 +253,7 @@
       }
     }
     if (isStem && !r.ok) setProgress('ERROR descargando stem', Math.max(currentPct,95), await responseMessage(r), 'error');
-    if (isStem && r.ok) setProgress('Cargando stems en el editor…', 99, 'Descargando audio desde MVSEP.');
+    if (isStem && r.ok) setProgress('Cargando pistas en el editor…', 99, 'Descargando audio desde MVSEP.');
     return r;
   };
 

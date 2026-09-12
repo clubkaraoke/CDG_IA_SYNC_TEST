@@ -1,6 +1,6 @@
 <style id="djgabo-mvsep-progress-style">
   #djgaboMvsepProgress{margin-top:10px;padding:10px 12px;border:1px solid rgba(124,92,255,.30);border-radius:9px;background:#0d1017;color:#f4f7fb;font:12px/1.35 system-ui,-apple-system,Segoe UI,sans-serif}
-  #djgaboMvsepProgress[hidden]{display:none!important}
+  #djgaboMvsepProgress[hidden],#djgaboDynamicMixer[hidden]{display:none!important}
   #djgaboMvsepProgress .dj-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:7px}
   #djgaboMvsepProgress .dj-head strong{font-size:12px}
   #djgaboMvsepProgress .dj-time{color:#8f99aa;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -13,18 +13,37 @@
   #djgaboMvsepProgress.dj-error .dj-fill{background:#ff5971}
   select[data-djgabo-model-locked="1"]{opacity:.88;cursor:not-allowed}
 
-  #djgaboMvsepOutputs{margin-top:10px;border:1px solid #2b3240;border-radius:10px;background:#0d1017;color:#f4f7fb;font:12px/1.35 system-ui,-apple-system,Segoe UI,sans-serif;overflow:hidden}
-  #djgaboMvsepOutputs[hidden]{display:none!important}
-  #djgaboMvsepOutputs .out-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid #242a35}
-  #djgaboMvsepOutputs .out-head strong{font-size:12px}
-  #djgaboMvsepOutputs .out-count{color:#9ca7b8}
-  #djgaboMvsepOutputs .out-list{display:grid;gap:1px;background:#242a35}
-  #djgaboMvsepOutputs .out-row{display:grid;grid-template-columns:minmax(190px,1fr) minmax(130px,.7fr) auto;align-items:center;gap:10px;padding:9px 12px;background:#10141c}
-  #djgaboMvsepOutputs .out-name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #djgaboMvsepOutputs .out-role{color:#aeb8c8}
-  #djgaboMvsepOutputs .out-badge{padding:3px 7px;border:1px solid #384152;border-radius:999px;color:#b8c2d2;white-space:nowrap}
-  #djgaboMvsepOutputs .out-badge.primary{border-color:rgba(43,210,142,.4);color:#55dfa8;background:rgba(43,210,142,.08)}
-  #djgaboMvsepOutputs .out-note{padding:8px 12px;color:#9ca7b8;border-top:1px solid #242a35}
+  #djgaboDynamicMixer{margin-top:10px;border:1px solid #2b3240;border-radius:11px;background:#0d1017;color:#f4f7fb;font:12px/1.35 system-ui,-apple-system,Segoe UI,sans-serif;overflow:hidden}
+  #djgaboDynamicMixer .mx-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid #242a35}
+  #djgaboDynamicMixer .mx-head-left{display:flex;align-items:center;gap:10px;min-width:0}
+  #djgaboDynamicMixer .mx-head strong{font-size:12px;white-space:nowrap}
+  #djgaboDynamicMixer .mx-count{color:#55dfa8;border:1px solid rgba(43,210,142,.35);background:rgba(43,210,142,.08);border-radius:999px;padding:3px 8px;white-space:nowrap}
+  #djgaboDynamicMixer .mx-global{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+  #djgaboDynamicMixer button,#djgaboDynamicMixer .mx-download{border:1px solid #394254;background:#171c25;color:#eef2f8;border-radius:7px;min-height:31px;padding:5px 9px;font:600 11px system-ui;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+  #djgaboDynamicMixer button:hover,#djgaboDynamicMixer .mx-download:hover{background:#202735}
+  #djgaboDynamicMixer button.active{border-color:#8b72ff;background:#372c70;color:#fff}
+  #djgaboDynamicMixer .mx-master-time{min-width:92px;color:#aab4c4;font-variant-numeric:tabular-nums;text-align:center}
+  #djgaboDynamicMixer .mx-master-seek{width:min(260px,32vw);accent-color:#8b72ff}
+  #djgaboDynamicMixer .mx-list{display:grid;gap:1px;background:#242a35}
+  #djgaboDynamicMixer .mx-row{display:grid;grid-template-columns:minmax(170px,220px) minmax(300px,1fr);background:#10141c;min-height:88px}
+  #djgaboDynamicMixer .mx-meta{padding:10px 10px 9px 12px;border-right:1px solid #242a35;display:flex;flex-direction:column;gap:5px;justify-content:center;min-width:0}
+  #djgaboDynamicMixer .mx-name{font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #djgaboDynamicMixer .mx-role{color:#aab4c4;font-size:11px}
+  #djgaboDynamicMixer .mx-role.primary{color:#55dfa8}
+  #djgaboDynamicMixer .mx-main{padding:8px 10px;display:grid;grid-template-columns:auto auto minmax(90px,130px) minmax(220px,1fr) auto;align-items:center;gap:8px}
+  #djgaboDynamicMixer .mx-volume{width:100%;accent-color:#8b72ff}
+  #djgaboDynamicMixer audio{width:100%;height:36px;min-width:200px}
+  #djgaboDynamicMixer .mx-note{padding:8px 12px;color:#9ca7b8;border-top:1px solid #242a35}
+  #djgaboDynamicMixer .mx-note b{color:#d9e0ea}
+  @media(max-width:900px){
+    #djgaboDynamicMixer .mx-head{align-items:flex-start;flex-direction:column}
+    #djgaboDynamicMixer .mx-global{justify-content:flex-start;width:100%}
+    #djgaboDynamicMixer .mx-master-seek{width:100%;flex:1}
+    #djgaboDynamicMixer .mx-row{grid-template-columns:1fr}
+    #djgaboDynamicMixer .mx-meta{border-right:0;border-bottom:1px solid #242a35}
+    #djgaboDynamicMixer .mx-main{grid-template-columns:auto auto 1fr auto}
+    #djgaboDynamicMixer audio{grid-column:1/-1}
+  }
 </style>
 <script id="djgabo-mvsep-progress-patch">
 (() => {
@@ -32,13 +51,20 @@
   window.__djgaboMvsepProgressPatch = true;
 
   let startedAt = 0, elapsedTimer = null, creepTimer = null, currentPct = 0;
-  let panel, titleEl, detailEl, fillEl, timeEl, processBtn, outputsPanel;
+  let panel, titleEl, detailEl, fillEl, timeEl, processBtn, dynamicMixer;
+  let mixerAudios = [], mixerRows = [], syncTimer = null, masterDuration = 0;
 
   const fmtElapsed = () => {
     if (!startedAt) return '00:00';
     const sec = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
     return `${String(Math.floor(sec / 60)).padStart(2,'0')}:${String(sec % 60).padStart(2,'0')}`;
   };
+  const fmtTime = sec => {
+    sec = Number.isFinite(sec) ? Math.max(0, sec) : 0;
+    const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  };
+  const resolveAudioUrl = url => new URL(url || '', location.href).href;
 
   function findProcessButton(){
     return [...document.querySelectorAll('button')].find(b => /procesar/i.test((b.textContent || '').trim())) || null;
@@ -53,9 +79,7 @@
       if (select.dataset.djgaboModelLocked === '1') return select;
       select.value = team.value;
       team.selected = true;
-      for (const option of [...select.options]) {
-        if (option !== team) option.remove();
-      }
+      for (const option of [...select.options]) if (option !== team) option.remove();
       team.textContent = 'BS RoFormer · MVSep Team';
       select.disabled = true;
       select.dataset.djgaboModelLocked = '1';
@@ -64,16 +88,6 @@
       return select;
     }
     return null;
-  }
-
-  function mountOutputs(){
-    if (outputsPanel && document.body.contains(outputsPanel)) return outputsPanel;
-    outputsPanel = document.createElement('section');
-    outputsPanel.id = 'djgaboMvsepOutputs';
-    outputsPanel.hidden = true;
-    outputsPanel.innerHTML = '<div class="out-head"><strong>PISTAS DEVUELTAS POR MVSEP</strong><span class="out-count">0 pistas</span></div><div class="out-list"></div><div class="out-note">Se mostrarán todos los archivos que entregue MVSEP. Las pistas principales siguen cargándose en el editor.</div>';
-    if (panel?.parentElement) panel.insertAdjacentElement('afterend', outputsPanel);
-    return outputsPanel;
   }
 
   function roleLabel(role){
@@ -86,35 +100,196 @@
       crowd: 'Público / aplausos',
       other: 'Audio sin público'
     };
-    return labels[role] || role || 'Extra';
+    return labels[role] || String(role || 'Pista adicional').replaceAll('_',' ');
   }
 
-  function renderOutputs(payload){
-    const files = Array.isArray(payload?.files) ? payload.files : [];
-    const box = mountOutputs();
-    if (!box) return;
-    const list = box.querySelector('.out-list');
-    const count = box.querySelector('.out-count');
-    box.hidden = false;
-    count.textContent = `${files.length} pista${files.length === 1 ? '' : 's'}`;
-    list.innerHTML = '';
-    files.forEach((file, idx) => {
-      const row = document.createElement('div');
-      row.className = 'out-row';
-      const primary = ['voice','back','instrumental'].includes(file?.role);
-      row.innerHTML = `<div class="out-name"></div><div class="out-role"></div><div class="out-badge${primary ? ' primary' : ''}">${primary ? 'EDITOR PRINCIPAL' : 'RESULTADO MVSEP'}</div>`;
-      row.querySelector('.out-name').textContent = file?.name || `Pista ${idx + 1}`;
-      row.querySelector('.out-role').textContent = roleLabel(file?.role);
-      list.appendChild(row);
+  function renameLegacyEditor(){
+    for (const el of document.querySelectorAll('div,span,strong')) {
+      const text = (el.textContent || '').trim();
+      if (text === 'MEZCLADOR / EDITOR') {
+        el.textContent = 'EDITOR DE SILENCIOS · 3 PISTAS PRINCIPALES';
+        el.title = 'El mezclador dinámico superior conserva todas las pistas devueltas por MVSEP.';
+        break;
+      }
+    }
+  }
+
+  function mountDynamicMixer(){
+    if (dynamicMixer && document.body.contains(dynamicMixer)) return dynamicMixer;
+    dynamicMixer = document.createElement('section');
+    dynamicMixer.id = 'djgaboDynamicMixer';
+    dynamicMixer.hidden = true;
+    dynamicMixer.innerHTML = `
+      <div class="mx-head">
+        <div class="mx-head-left"><strong>MEZCLADOR DINÁMICO · MVSEP</strong><span class="mx-count">0 pistas</span></div>
+        <div class="mx-global">
+          <button type="button" class="mx-play">▶ Reproducir todas</button>
+          <button type="button" class="mx-pause">Ⅱ Pausa</button>
+          <button type="button" class="mx-zero">↤ Inicio</button>
+          <input class="mx-master-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Posición global">
+          <span class="mx-master-time">00:00 / 00:00</span>
+        </div>
+      </div>
+      <div class="mx-list"></div>
+      <div class="mx-note"><b>Todas las pistas que entregue MVSEP aparecen aquí.</b> M = Mute, S = Solo. El audio se reproduce por streaming; las 3 pistas principales siguen disponibles abajo para edición de silencios.</div>`;
+    if (panel?.parentElement) panel.insertAdjacentElement('afterend', dynamicMixer);
+
+    dynamicMixer.querySelector('.mx-play').addEventListener('click', playAll);
+    dynamicMixer.querySelector('.mx-pause').addEventListener('click', pauseAll);
+    dynamicMixer.querySelector('.mx-zero').addEventListener('click', () => seekAll(0));
+    dynamicMixer.querySelector('.mx-master-seek').addEventListener('input', ev => {
+      if (!masterDuration) return;
+      const t = (Number(ev.target.value) / 1000) * masterDuration;
+      seekAll(t);
+    });
+    return dynamicMixer;
+  }
+
+  function stopSyncTimer(){
+    if (syncTimer) clearInterval(syncTimer);
+    syncTimer = null;
+  }
+
+  function currentMaster(){
+    return mixerAudios.find(a => Number.isFinite(a.duration) && a.duration > 0) || mixerAudios[0] || null;
+  }
+
+  function updateMasterUI(){
+    if (!dynamicMixer) return;
+    const master = currentMaster();
+    if (!master) return;
+    const duration = mixerAudios.reduce((m,a) => Number.isFinite(a.duration) ? Math.max(m,a.duration) : m, 0);
+    if (duration > 0) masterDuration = duration;
+    const current = Number.isFinite(master.currentTime) ? master.currentTime : 0;
+    const seek = dynamicMixer.querySelector('.mx-master-seek');
+    if (seek && masterDuration > 0) seek.value = String(Math.max(0, Math.min(1000, Math.round((current/masterDuration)*1000))));
+    const time = dynamicMixer.querySelector('.mx-master-time');
+    if (time) time.textContent = `${fmtTime(current)} / ${fmtTime(masterDuration)}`;
+  }
+
+  function seekAll(time){
+    for (const audio of mixerAudios) {
+      try {
+        if (Number.isFinite(audio.duration) && audio.duration > 0) audio.currentTime = Math.max(0, Math.min(time, audio.duration));
+      } catch(_){}
+    }
+    updateMasterUI();
+  }
+
+  function applyMixStates(){
+    const hasSolo = mixerRows.some(row => row.dataset.solo === '1');
+    mixerRows.forEach((row, idx) => {
+      const audio = mixerAudios[idx];
+      if (!audio) return;
+      const muted = row.dataset.muted === '1';
+      const solo = row.dataset.solo === '1';
+      audio.muted = hasSolo ? !solo : muted;
+      const vol = row.querySelector('.mx-volume');
+      audio.volume = Math.max(0, Math.min(1, Number(vol?.value || 100)/100));
+      row.querySelector('.mx-mute')?.classList.toggle('active', muted);
+      row.querySelector('.mx-solo')?.classList.toggle('active', solo);
     });
   }
 
-  function clearOutputs(){
-    if (outputsPanel) {
-      outputsPanel.hidden = true;
-      const list = outputsPanel.querySelector('.out-list');
+  async function playAll(){
+    const master = currentMaster();
+    const t = Number.isFinite(master?.currentTime) ? master.currentTime : 0;
+    seekAll(t);
+    applyMixStates();
+    await Promise.allSettled(mixerAudios.map(a => a.play()));
+    stopSyncTimer();
+    syncTimer = setInterval(() => {
+      const ref = currentMaster();
+      if (!ref || ref.paused) return updateMasterUI();
+      const t0 = ref.currentTime;
+      for (const audio of mixerAudios) {
+        if (audio === ref || audio.paused || !Number.isFinite(audio.currentTime)) continue;
+        if (Math.abs(audio.currentTime - t0) > .22) {
+          try { audio.currentTime = t0; } catch(_){}
+        }
+      }
+      updateMasterUI();
+    }, 250);
+  }
+
+  function pauseAll(){
+    mixerAudios.forEach(a => a.pause());
+    stopSyncTimer();
+    updateMasterUI();
+  }
+
+  function clearDynamicMixer(){
+    pauseAll();
+    mixerAudios.forEach(a => { try { a.removeAttribute('src'); a.load(); } catch(_){} });
+    mixerAudios = [];
+    mixerRows = [];
+    masterDuration = 0;
+    if (dynamicMixer) {
+      dynamicMixer.hidden = true;
+      const list = dynamicMixer.querySelector('.mx-list');
       if (list) list.innerHTML = '';
+      const count = dynamicMixer.querySelector('.mx-count');
+      if (count) count.textContent = '0 pistas';
+      const time = dynamicMixer.querySelector('.mx-master-time');
+      if (time) time.textContent = '00:00 / 00:00';
+      const seek = dynamicMixer.querySelector('.mx-master-seek');
+      if (seek) seek.value = '0';
     }
+  }
+
+  function renderDynamicMixer(payload){
+    const files = Array.isArray(payload?.files) ? payload.files : [];
+    const box = mountDynamicMixer();
+    clearDynamicMixer();
+    box.hidden = false;
+    box.querySelector('.mx-count').textContent = `${files.length} pista${files.length === 1 ? '' : 's'}`;
+    const list = box.querySelector('.mx-list');
+
+    files.forEach((file, idx) => {
+      const row = document.createElement('article');
+      row.className = 'mx-row';
+      row.dataset.muted = '0';
+      row.dataset.solo = '0';
+      const primary = ['voice','back','instrumental'].includes(file?.role);
+      const src = resolveAudioUrl(file?.url);
+      row.innerHTML = `
+        <div class="mx-meta">
+          <div class="mx-name"></div>
+          <div class="mx-role${primary ? ' primary' : ''}"></div>
+        </div>
+        <div class="mx-main">
+          <button type="button" class="mx-mute" title="Mute">M</button>
+          <button type="button" class="mx-solo" title="Solo">S</button>
+          <input class="mx-volume" type="range" min="0" max="100" value="100" step="1" title="Volumen">
+          <audio controls preload="metadata"></audio>
+          <a class="mx-download" target="_blank" rel="noopener">⬇ WAV</a>
+        </div>`;
+      row.querySelector('.mx-name').textContent = file?.name || `Pista ${idx + 1}`;
+      row.querySelector('.mx-role').textContent = `${roleLabel(file?.role)}${primary ? ' · principal' : ''}`;
+      const audio = row.querySelector('audio');
+      audio.src = src;
+      audio.dataset.role = file?.role || '';
+      audio.addEventListener('loadedmetadata', updateMasterUI);
+      audio.addEventListener('durationchange', updateMasterUI);
+      audio.addEventListener('timeupdate', () => { if (audio === currentMaster()) updateMasterUI(); });
+      audio.addEventListener('ended', () => { if (audio === currentMaster()) pauseAll(); });
+      row.querySelector('.mx-download').href = src;
+      row.querySelector('.mx-download').download = file?.name || `stem-${idx+1}.wav`;
+      row.querySelector('.mx-mute').addEventListener('click', () => {
+        row.dataset.muted = row.dataset.muted === '1' ? '0' : '1';
+        applyMixStates();
+      });
+      row.querySelector('.mx-solo').addEventListener('click', () => {
+        row.dataset.solo = row.dataset.solo === '1' ? '0' : '1';
+        applyMixStates();
+      });
+      row.querySelector('.mx-volume').addEventListener('input', applyMixStates);
+      list.appendChild(row);
+      mixerRows.push(row);
+      mixerAudios.push(audio);
+    });
+    applyMixStates();
+    renameLegacyEditor();
   }
 
   function mount(){
@@ -132,7 +307,8 @@
     timeEl = panel.querySelector('#djgaboMvsepTime');
     const row = processBtn.parentElement;
     if (row) row.insertAdjacentElement('afterend', panel); else processBtn.insertAdjacentElement('afterend', panel);
-    mountOutputs();
+    mountDynamicMixer();
+    renameLegacyEditor();
     return true;
   }
 
@@ -156,7 +332,7 @@
 
   function beginProcessing(){
     lockDefinitiveModel();
-    clearOutputs();
+    clearDynamicMixer();
     startedAt = Date.now(); currentPct = 4; startElapsed();
     setProgress('Preparando archivo…', 4, 'Modelo fijo: BS RoFormer · MVSep Team. Iniciando envío.');
     stopCreep();
@@ -165,7 +341,7 @@
 
   function markSelected(file){
     lockDefinitiveModel();
-    clearOutputs();
+    clearDynamicMixer();
     startedAt = 0; currentPct = 0; if (elapsedTimer) clearInterval(elapsedTimer); elapsedTimer = null; stopCreep();
     const mb = file && Number.isFinite(file.size) ? ` · ${(file.size/1024/1024).toFixed(1)} MB` : '';
     setProgress('✓ Archivo seleccionado', 0, `${file?.name || 'Audio'}${mb} · modelo: BS RoFormer · MVSep Team.`, 'ok');
@@ -186,7 +362,7 @@
     const real = pctFromPayload(p);
     if (/done|complete|completed|success|finished/.test(raw)) {
       stopCreep();
-      setProgress('MVSEP terminó · leyendo todas las pistas…', 94, 'El panel ya no asume 3 archivos: mostrará todo lo que MVSEP haya generado.');
+      setProgress('MVSEP terminó · leyendo todas las pistas…', 94, 'Se cargará una fila por cada archivo que MVSEP haya generado.');
       return;
     }
     if (/error|fail|cancel/.test(raw)) { stopCreep(); setProgress('Error en MVSEP', Math.max(currentPct,20), `Estado: ${raw || 'error'}`, 'error'); return; }
@@ -241,24 +417,24 @@
       if (r.ok) {
         try {
           const p = await r.clone().json();
-          renderOutputs(p);
+          renderDynamicMixer(p);
           const n = Array.isArray(p?.files) ? p.files.length : 0;
-          setProgress(`✓ ${n} pista${n === 1 ? '' : 's'} recibida${n === 1 ? '' : 's'}`, 97, 'Todas las salidas de MVSEP están visibles. Voz principal + Coros + Instrumental se cargan en el editor.', 'ok');
-        } catch(_) {
-          setProgress('✓ Resultados recibidos', 97, 'Cargando pistas en el panel…', 'ok');
+          setProgress(`✓ ${n} pista${n === 1 ? '' : 's'} recibida${n === 1 ? '' : 's'}`, 97, 'Todas las salidas de MVSEP están disponibles en el mezclador dinámico.', 'ok');
+        } catch(e) {
+          setProgress('Resultados recibidos', 97, 'MVSEP terminó; revisa el mezclador dinámico.', 'ok');
         }
       } else {
         stopCreep();
         setProgress('ERROR · resultado incompleto', Math.max(currentPct,94), await responseMessage(r), 'error');
       }
     }
-    if (isStem && !r.ok) setProgress('ERROR descargando stem', Math.max(currentPct,95), await responseMessage(r), 'error');
-    if (isStem && r.ok) setProgress('Cargando pistas en el editor…', 99, 'Descargando audio desde MVSEP.');
+    if (isStem && !r.ok) setProgress('ERROR reproduciendo stem', Math.max(currentPct,95), await responseMessage(r), 'error');
     return r;
   };
 
-  new MutationObserver(() => { mount(); lockDefinitiveModel(); }).observe(document.documentElement,{childList:true,subtree:true});
+  new MutationObserver(() => { mount(); lockDefinitiveModel(); renameLegacyEditor(); }).observe(document.documentElement,{childList:true,subtree:true});
   mount();
   lockDefinitiveModel();
+  renameLegacyEditor();
 })();
 </script>

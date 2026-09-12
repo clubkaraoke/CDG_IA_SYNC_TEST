@@ -1,0 +1,139 @@
+<style id="djgabo-mvsep-progress-style">
+  #djgaboMvsepProgress{margin-top:10px;padding:10px 12px;border:1px solid rgba(124,92,255,.30);border-radius:9px;background:#0d1017;color:#f4f7fb;font:12px/1.35 system-ui,-apple-system,Segoe UI,sans-serif}
+  #djgaboMvsepProgress[hidden]{display:none!important}
+  #djgaboMvsepProgress .dj-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:7px}
+  #djgaboMvsepProgress .dj-head strong{font-size:12px}
+  #djgaboMvsepProgress .dj-time{color:#8f99aa;font-variant-numeric:tabular-nums;white-space:nowrap}
+  #djgaboMvsepProgress .dj-track{height:7px;border-radius:999px;background:#1b202a;overflow:hidden}
+  #djgaboMvsepProgress .dj-fill{height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,#6f5cff,#9f6cff);transition:width .45s ease}
+  #djgaboMvsepProgress .dj-detail{margin-top:6px;color:#9da7b8}
+  #djgaboMvsepProgress.dj-ok{border-color:rgba(43,210,142,.35)}
+  #djgaboMvsepProgress.dj-ok .dj-fill{background:linear-gradient(90deg,#1fbf83,#42dca2)}
+  #djgaboMvsepProgress.dj-error{border-color:rgba(255,89,113,.42)}
+  #djgaboMvsepProgress.dj-error .dj-fill{background:#ff5971}
+</style>
+<script id="djgabo-mvsep-progress-patch">
+(() => {
+  if (window.__djgaboMvsepProgressPatch) return;
+  window.__djgaboMvsepProgressPatch = true;
+
+  let startedAt = 0, elapsedTimer = null, creepTimer = null, currentPct = 0;
+  let panel, titleEl, detailEl, fillEl, timeEl, processBtn;
+
+  const fmtElapsed = () => {
+    if (!startedAt) return '00:00';
+    const sec = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    return `${String(Math.floor(sec / 60)).padStart(2,'0')}:${String(sec % 60).padStart(2,'0')}`;
+  };
+
+  function findProcessButton(){
+    return [...document.querySelectorAll('button')].find(b => /procesar/i.test((b.textContent || '').trim())) || null;
+  }
+
+  function mount(){
+    if (panel && document.body.contains(panel)) return true;
+    processBtn = findProcessButton();
+    if (!processBtn) return false;
+    panel = document.createElement('div');
+    panel.id = 'djgaboMvsepProgress';
+    panel.hidden = true;
+    panel.innerHTML = `<div class="dj-head"><strong id="djgaboMvsepTitle">Archivo listo</strong><span id="djgaboMvsepTime" class="dj-time">00:00</span></div><div class="dj-track"><div id="djgaboMvsepFill" class="dj-fill"></div></div><div id="djgaboMvsepDetail" class="dj-detail">Pulsa Procesar para enviarlo a MVSEP.</div>`;
+    titleEl = panel.querySelector('#djgaboMvsepTitle');
+    detailEl = panel.querySelector('#djgaboMvsepDetail');
+    fillEl = panel.querySelector('#djgaboMvsepFill');
+    timeEl = panel.querySelector('#djgaboMvsepTime');
+    const row = processBtn.parentElement;
+    if (row) row.insertAdjacentElement('afterend', panel); else processBtn.insertAdjacentElement('afterend', panel);
+    return true;
+  }
+
+  function stopCreep(){ if (creepTimer) clearInterval(creepTimer); creepTimer = null; }
+  function startElapsed(){ if (!startedAt) startedAt = Date.now(); if (elapsedTimer) clearInterval(elapsedTimer); elapsedTimer = setInterval(() => { if (timeEl) timeEl.textContent = fmtElapsed(); }, 500); }
+
+  function setProgress(status, pct, detail, kind=''){
+    if (!mount()) return;
+    panel.hidden = false;
+    panel.classList.remove('dj-ok','dj-error');
+    if (kind === 'ok') panel.classList.add('dj-ok');
+    if (kind === 'error') panel.classList.add('dj-error');
+    if (Number.isFinite(pct)) {
+      currentPct = Math.max(currentPct, Math.max(0, Math.min(100, pct)));
+      fillEl.style.width = `${currentPct}%`;
+    }
+    titleEl.textContent = status;
+    detailEl.textContent = detail || '';
+    timeEl.textContent = fmtElapsed();
+  }
+
+  function beginProcessing(){
+    startedAt = Date.now(); currentPct = 4; startElapsed();
+    setProgress('Preparando archivo…', 4, 'Iniciando envío a OVH / MVSEP.');
+    stopCreep();
+    creepTimer = setInterval(() => { if (currentPct < 28) setProgress(titleEl.textContent || 'Preparando…', currentPct + 1, detailEl.textContent || ''); }, 1400);
+  }
+
+  function markSelected(file){
+    startedAt = 0; currentPct = 0; if (elapsedTimer) clearInterval(elapsedTimer); elapsedTimer = null; stopCreep();
+    const mb = file && Number.isFinite(file.size) ? ` · ${(file.size/1024/1024).toFixed(1)} MB` : '';
+    setProgress('✓ Archivo seleccionado', 0, `${file?.name || 'Audio'}${mb} · listo para Procesar.`, 'ok');
+    if (timeEl) timeEl.textContent = '00:00';
+  }
+
+  function pctFromPayload(p){
+    for (const raw of [p?.progress,p?.percent,p?.percentage,p?.data?.progress,p?.data?.percent,p?.data?.percentage]) {
+      const n = Number(raw); if (!Number.isFinite(n)) continue;
+      if (n >= 0 && n <= 1) return Math.round(n*100);
+      if (n >= 0 && n <= 100) return Math.round(n);
+    }
+    return null;
+  }
+
+  function updateFromStatus(p){
+    const raw = String(p?.status ?? p?.state ?? p?.data?.status ?? p?.data?.state ?? '').toLowerCase();
+    const real = pctFromPayload(p);
+    if (/done|complete|completed|success|finished/.test(raw)) { stopCreep(); setProgress('✓ Separación terminada', 94, 'MVSEP terminó. Cargando stems en el editor…', 'ok'); return; }
+    if (/error|fail|cancel/.test(raw)) { stopCreep(); setProgress('Error en MVSEP', Math.max(currentPct,20), `Estado: ${raw || 'error'}`, 'error'); return; }
+    if (/process|running|separat/.test(raw)) {
+      stopCreep();
+      setProgress('MVSEP está separando la canción…', real == null ? Math.max(currentPct,48) : Math.max(40,Math.min(90,real)), real == null ? 'Procesamiento activo · progreso aproximado.' : `Procesamiento ${real}%`);
+      creepTimer = setInterval(() => { if (currentPct < 88) setProgress('MVSEP está separando la canción…', currentPct + 1, 'Procesamiento activo · progreso aproximado.'); }, 3000);
+      return;
+    }
+    if (raw) { stopCreep(); setProgress('En cola de MVSEP…', real == null ? Math.max(currentPct,34) : Math.max(30,Math.min(70,real)), `Estado MVSEP: ${raw}`); }
+  }
+
+  document.addEventListener('change', ev => {
+    const i = ev.target;
+    if (i instanceof HTMLInputElement && i.type === 'file' && i.files?.[0]) markSelected(i.files[0]);
+  }, true);
+
+  document.addEventListener('click', ev => {
+    const b = ev.target?.closest?.('button');
+    if (b && /procesar/i.test((b.textContent || '').trim())) beginProcessing();
+  }, true);
+
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init){
+    const url = typeof input === 'string' ? input : (input?.url || '');
+    const isCreate = /\/api\/mvsep\/karaoke(?:\?|$)/.test(url);
+    const isStatus = /\/api\/mvsep\/status\//.test(url);
+    const isResult = /\/api\/mvsep\/result\//.test(url);
+    const isStem = /\/api\/mvsep\/file\//.test(url);
+    if (isCreate) { if (!startedAt) beginProcessing(); setProgress('Subiendo canción a MVSEP…', Math.max(currentPct,10), 'No cierres esta pestaña. El envío puede tardar según el tamaño del WAV.'); }
+    let r;
+    try { r = await nativeFetch(input, init); }
+    catch (e) { if (isCreate || isStatus || isResult || isStem) setProgress('Error de conexión', Math.max(currentPct,10), e?.message || String(e), 'error'); throw e; }
+    if (isCreate) {
+      if (r.ok) { stopCreep(); setProgress('Trabajo enviado a MVSEP', 32, 'Esperando turno / inicio de separación.'); }
+      else { let msg = `HTTP ${r.status}`; try { const p = await r.clone().json(); msg = p?.detail || p?.message || msg; } catch(_){} setProgress('MVSEP rechazó el trabajo', Math.max(currentPct,15), msg, 'error'); }
+    }
+    if (isStatus && r.ok) { try { updateFromStatus(await r.clone().json()); } catch(_){} }
+    if (isResult && r.ok) setProgress('Cargando resultados…', 97, 'Los stems ya están listos. Preparando Voz principal + Coros + Instrumental.');
+    if (isStem && r.ok) setProgress('✓ Stems disponibles', 100, 'Audio cargado en el editor. Ya puedes escuchar, silenciar y descargar.', 'ok');
+    return r;
+  };
+
+  new MutationObserver(() => mount()).observe(document.documentElement,{childList:true,subtree:true});
+  mount();
+})();
+</script>

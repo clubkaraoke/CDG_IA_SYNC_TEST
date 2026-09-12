@@ -1,0 +1,523 @@
+<style id="djgabo-mvsep-workspace-style">
+  #djgaboWorkspace{margin:18px auto 24px;max-width:1500px;color:#eef2f7;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+  #djgaboWorkspace *{box-sizing:border-box}
+  #djgaboWorkspace .ws-card{background:#11151d;border:1px solid #2a3240;border-radius:12px;overflow:hidden;box-shadow:0 12px 30px rgba(0,0,0,.18)}
+  #djgaboWorkspace .ws-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid #272e3a;background:#0e1218}
+  #djgaboWorkspace .ws-title{font-weight:800;font-size:14px;letter-spacing:.02em}
+  #djgaboWorkspace .ws-sub{color:#97a3b5;font-size:12px;margin-top:2px}
+  #djgaboWorkspace button{border:1px solid #394457;background:#171d27;color:#e8edf5;border-radius:8px;padding:7px 10px;cursor:pointer;font-weight:700}
+  #djgaboWorkspace button:hover{background:#202938}
+  #djgaboWorkspace button.primary{background:#6f5cff;border-color:#806fff;color:white}
+  #djgaboWorkspace button.danger{border-color:#71333c;color:#ff8998;background:#26161b}
+  #djgaboWorkspace button:disabled{opacity:.45;cursor:not-allowed}
+  #djgaboHistory{margin-bottom:14px}
+  #djgaboHistory .hist-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;padding:12px}
+  #djgaboHistory .hist-item{padding:12px;border:1px solid #273040;border-radius:10px;background:#0e131b;display:flex;flex-direction:column;gap:8px}
+  #djgaboHistory .hist-name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #djgaboHistory .hist-meta{font-size:11px;color:#9aa6b8;display:flex;flex-wrap:wrap;gap:8px}
+  #djgaboHistory .hist-actions{display:flex;gap:8px;align-items:center;justify-content:space-between}
+  #djgaboHistory .pill{border:1px solid #344054;border-radius:999px;padding:2px 7px;font-size:10px;color:#aab6c8}
+  #djgaboHistory .pill.ok{border-color:#225f4a;color:#63d7a6}
+  #djgaboHistory .pill.expired{border-color:#5a3a3a;color:#c89a9a}
+  #djgaboHistory .hist-status{padding:12px;color:#9ca8b8;font-size:12px}
+  #djgaboEditor{display:none}
+  #djgaboEditor.active{display:block}
+  #djgaboEditor .proj-info{display:flex;align-items:center;gap:12px;min-width:0}
+  #djgaboEditor .proj-title{font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:780px}
+  #djgaboEditor .proj-hash{font:11px ui-monospace,SFMono-Regular,Consolas,monospace;color:#8995a8}
+  #djgaboEditor .master{padding:12px 14px;display:grid;grid-template-columns:auto minmax(180px,1fr) auto auto;gap:10px;align-items:center;border-bottom:1px solid #252c37}
+  #djgaboEditor .master-time{font:12px ui-monospace,SFMono-Regular,Consolas,monospace;color:#b9c4d5;min-width:88px;text-align:center}
+  #djgaboEditor input[type=range]{width:100%}
+  #djgaboEditor .tracks{display:grid;gap:1px;background:#252c37}
+  #djgaboEditor .track{background:#10151d;padding:10px 12px;display:grid;grid-template-columns:220px minmax(360px,1fr);gap:12px;align-items:stretch}
+  #djgaboEditor .track-side{display:flex;flex-direction:column;gap:8px;min-width:0}
+  #djgaboEditor .track-name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #djgaboEditor .track-role{font-size:11px;color:#98a5b8}
+  #djgaboEditor .track-controls{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  #djgaboEditor .track-controls button{min-width:32px;padding:5px 7px}
+  #djgaboEditor .track-controls button.on{background:#6f5cff;border-color:#806fff;color:#fff}
+  #djgaboEditor .vol{display:grid;grid-template-columns:28px 1fr 42px;gap:6px;align-items:center;font-size:11px;color:#9ba7b8}
+  #djgaboEditor .wave-wrap{position:relative;min-height:112px;background:#0a0e14;border:1px solid #252f3d;border-radius:8px;overflow:hidden;cursor:crosshair;user-select:none}
+  #djgaboEditor canvas.wave{display:block;width:100%;height:112px}
+  #djgaboEditor .wave-status{position:absolute;left:10px;top:8px;font-size:11px;color:#8995a6;pointer-events:none;background:rgba(8,11,16,.72);padding:3px 6px;border-radius:5px}
+  #djgaboEditor .sel-info{font-size:11px;color:#9eabbc;min-height:16px}
+  #djgaboEditor .edit-actions{display:flex;gap:6px;flex-wrap:wrap}
+  #djgaboEditor .footer{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px 14px;border-top:1px solid #252c37;background:#0e1218;flex-wrap:wrap}
+  #djgaboEditor .save-state{font-size:11px;color:#8fa0b5}
+  #djgaboEditor .loading{padding:28px;text-align:center;color:#9daabd}
+  #djgaboEditor .error{padding:16px;color:#ff8f9e;background:#261419;border:1px solid #6b2e39;border-radius:8px;margin:12px}
+  @media(max-width:900px){
+    #djgaboEditor .track{grid-template-columns:1fr}
+    #djgaboEditor .master{grid-template-columns:auto 1fr;}
+    #djgaboEditor .master-time{grid-column:1/-1;text-align:left}
+  }
+</style>
+<script id="djgabo-mvsep-workspace-patch">
+(() => {
+  if (window.__djgaboMvsepWorkspacePatch) return;
+  window.__djgaboMvsepWorkspacePatch = true;
+
+  const state = {
+    hash: '', name: '', algorithm: '', date: '', files: [], tracks: [],
+    duration: 0, playing: false, currentTime: 0, raf: 0, loadingProject: false,
+  };
+  let root, historyBox, historyList, editor, tracksBox, masterRange, masterTime, playBtn, projectTitle, projectHash, saveState;
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const fmt = sec => {
+    sec = Number.isFinite(sec) ? Math.max(0, sec) : 0;
+    const m = Math.floor(sec/60), s = Math.floor(sec%60), cs = Math.floor((sec%1)*100);
+    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(cs).padStart(2,'0')}`;
+  };
+  const api = p => new URL(p, location.href).toString();
+  const roleLabel = role => ({
+    vocals_full:'Voces completas', voice:'Voz principal', back:'Coros', instrumental:'Instrumental limpio',
+    back_instrumental:'Instrumental + coros', crowd:'Público / aplausos', other:'Audio sin público'
+  }[role] || role || 'Stem');
+  const safeName = s => String(s || 'audio').replace(/[\\/:*?"<>|]+/g,'_').replace(/\s+/g,' ').trim();
+
+  function mount(){
+    if (root && document.body.contains(root)) return;
+    root = document.createElement('div');
+    root.id = 'djgaboWorkspace';
+    root.innerHTML = `
+      <section id="djgaboHistory" class="ws-card">
+        <div class="ws-head">
+          <div><div class="ws-title">HISTORIAL MVSEP · TRABAJOS YA PROCESADOS</div><div class="ws-sub">Abrir no reprocesa ni gasta créditos. Carga los stems que MVSEP ya generó.</div></div>
+          <button id="djHistReload">↻ Actualizar historial</button>
+        </div>
+        <div class="hist-status">Cargando historial real de MVSEP…</div>
+        <div class="hist-list"></div>
+      </section>
+      <section id="djgaboEditor" class="ws-card">
+        <div class="ws-head">
+          <div class="proj-info"><div><div class="proj-title">Proyecto MVSEP</div><div class="proj-hash"></div></div></div>
+          <button id="djCloseProject">Cerrar proyecto</button>
+        </div>
+        <div class="master">
+          <button id="djPlayAll" class="primary">▶ Reproducir todas</button>
+          <input id="djMasterRange" type="range" min="0" max="1" step="0.01" value="0">
+          <div id="djMasterTime" class="master-time">00:00.00 / 00:00.00</div>
+          <button id="djStopAll">■ Detener</button>
+        </div>
+        <div class="tracks"></div>
+        <div class="footer">
+          <div class="save-state">Ediciones guardadas automáticamente en este navegador.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="djUndoAll">↶ Deshacer último cambio</button>
+            <button id="djDownloadMix" class="primary">⬇ Descargar mezcla editada WAV</button>
+          </div>
+        </div>
+      </section>`;
+
+    const anchor = document.querySelector('main') || document.querySelector('.container') || document.body;
+    if (anchor === document.body) document.body.insertBefore(root, document.body.firstChild);
+    else anchor.insertBefore(root, anchor.firstChild);
+
+    historyBox = root.querySelector('#djgaboHistory');
+    historyList = historyBox.querySelector('.hist-list');
+    editor = root.querySelector('#djgaboEditor');
+    tracksBox = editor.querySelector('.tracks');
+    masterRange = editor.querySelector('#djMasterRange');
+    masterTime = editor.querySelector('#djMasterTime');
+    playBtn = editor.querySelector('#djPlayAll');
+    projectTitle = editor.querySelector('.proj-title');
+    projectHash = editor.querySelector('.proj-hash');
+    saveState = editor.querySelector('.save-state');
+
+    root.querySelector('#djHistReload').addEventListener('click', loadHistory);
+    root.querySelector('#djCloseProject').addEventListener('click', closeProject);
+    playBtn.addEventListener('click', () => state.playing ? pauseAll() : playAll());
+    root.querySelector('#djStopAll').addEventListener('click', stopAll);
+    root.querySelector('#djUndoAll').addEventListener('click', undoLastGlobal);
+    root.querySelector('#djDownloadMix').addEventListener('click', downloadMix);
+    masterRange.addEventListener('input', () => seekAll(Number(masterRange.value)));
+    loadHistory();
+  }
+
+  async function loadHistory(){
+    mount();
+    const status = historyBox.querySelector('.hist-status');
+    status.hidden = false;
+    status.textContent = 'Consultando tu historial real de MVSEP…';
+    historyList.innerHTML = '';
+    try{
+      const r = await fetch(api('api/mvsep/history?start=0&limit=10'));
+      const p = await r.json();
+      if(!r.ok || !p.ok) throw new Error(p.detail || 'No se pudo cargar el historial');
+      const items = Array.isArray(p.items) ? p.items : [];
+      status.hidden = !!items.length;
+      if(!items.length) status.textContent = 'MVSEP no devolvió trabajos recientes.';
+      for(const item of items) historyList.appendChild(historyCard(item));
+    }catch(e){
+      status.hidden = false;
+      status.textContent = `Error al cargar historial: ${e.message || e}`;
+    }
+  }
+
+  function historyCard(item){
+    const el = document.createElement('div');
+    el.className = 'hist-item';
+    const ready = item.job_exists && item.status === 'done';
+    const alg = item.algorithm_name || 'MVSEP';
+    const fileCount = Number.isFinite(item.file_count) ? `${item.file_count} stems` : 'stems por consultar';
+    el.innerHTML = `
+      <div class="hist-name"></div>
+      <div class="hist-meta"><span class="pill ${ready?'ok':(item.status==='expired'?'expired':'')}"></span><span class="alg"></span><span class="count"></span></div>
+      <div class="hist-meta"><span class="date"></span><span class="credits"></span><span class="ttl"></span></div>
+      <div class="hist-actions"><code style="font-size:10px;color:#778498"></code><button ${ready?'':'disabled'}>Abrir en editor</button></div>`;
+    el.querySelector('.hist-name').textContent = item.name || item.hash || 'Separación MVSEP';
+    el.querySelector('.pill').textContent = ready ? 'LISTO' : String(item.status || 'desconocido').toUpperCase();
+    el.querySelector('.alg').textContent = alg;
+    el.querySelector('.count').textContent = fileCount;
+    el.querySelector('.date').textContent = item.date ? `Fecha: ${item.date}` : '';
+    el.querySelector('.credits').textContent = item.credits != null ? `Créditos: ${item.credits}` : '';
+    el.querySelector('.ttl').textContent = item.time_left ? `Disponible: ${item.time_left}` : '';
+    el.querySelector('code').textContent = item.hash || '';
+    el.querySelector('button').addEventListener('click', () => openJob(item.hash));
+    return el;
+  }
+
+  async function openJob(hash){
+    mount();
+    if(!hash) return;
+    stopAll();
+    editor.classList.add('active');
+    editor.scrollIntoView({behavior:'smooth', block:'start'});
+    tracksBox.innerHTML = '<div class="loading">Abriendo trabajo MVSEP y cargando todos los stems existentes…</div>';
+    state.loadingProject = true;
+    try{
+      const r = await fetch(api(`api/mvsep/open/${encodeURIComponent(hash)}`));
+      const p = await r.json();
+      if(!r.ok || !p.ok) throw new Error(p.detail || p.message || `Estado: ${p.status || 'desconocido'}`);
+      await renderProject(p);
+    }catch(e){
+      tracksBox.innerHTML = `<div class="error"></div>`;
+      tracksBox.querySelector('.error').textContent = `No se pudo abrir: ${e.message || e}`;
+    }finally{
+      state.loadingProject = false;
+    }
+  }
+
+  async function renderProject(payload){
+    stopAll();
+    state.hash = payload.hash || '';
+    state.name = payload.name || state.hash || 'Proyecto MVSEP';
+    state.algorithm = typeof payload.algorithm === 'string' ? payload.algorithm : JSON.stringify(payload.algorithm || '');
+    state.date = payload.date || '';
+    state.files = Array.isArray(payload.files) ? payload.files : [];
+    state.tracks = [];
+    state.duration = 0;
+    state.currentTime = 0;
+    projectTitle.textContent = `${state.name} · ${state.files.length} pistas`;
+    projectHash.textContent = `${state.algorithm || 'MVSEP'} · ${state.hash}`;
+    tracksBox.innerHTML = '';
+    masterRange.max = '1'; masterRange.value = '0'; updateTimeLabel();
+
+    if(!state.files.length){
+      tracksBox.innerHTML = '<div class="error">MVSEP no devolvió archivos de audio utilizables para este trabajo.</div>';
+      return;
+    }
+
+    const saved = loadSavedProject(state.hash);
+    state.files.forEach((file, idx) => {
+      const track = createTrack(file, idx, saved?.tracks?.[String(file.index)] || null);
+      state.tracks.push(track);
+      tracksBox.appendChild(track.el);
+    });
+    applyAudibility();
+    saveState.textContent = saved ? 'Proyecto reabierto con tus ediciones guardadas.' : 'Proyecto abierto. Las ediciones se guardan automáticamente.';
+
+    for(const track of state.tracks){
+      await loadWaveform(track);
+    }
+    state.duration = Math.max(0, ...state.tracks.map(t => t.duration || 0));
+    masterRange.max = String(state.duration || 1);
+    updateTimeLabel();
+  }
+
+  function createTrack(file, idx, saved){
+    const el = document.createElement('div');
+    el.className = 'track';
+    el.innerHTML = `
+      <div class="track-side">
+        <div><div class="track-name"></div><div class="track-role"></div></div>
+        <div class="track-controls"><button class="mute">M</button><button class="solo">S</button><button class="orig">⬇ Original</button><button class="edited">⬇ Editado</button></div>
+        <div class="vol"><span>VOL</span><input type="range" min="0" max="1.5" step="0.01" value="1"><span class="volval">100%</span></div>
+        <div class="sel-info">Arrastra sobre la onda para seleccionar un tramo.</div>
+        <div class="edit-actions"><button class="silence primary" disabled>Silenciar selección</button><button class="undo">↶ Deshacer</button><button class="clear danger">Limpiar silencios</button></div>
+      </div>
+      <div class="wave-wrap"><canvas class="wave" width="1200" height="224"></canvas><div class="wave-status">Cargando forma de onda…</div></div>`;
+    el.querySelector('.track-name').textContent = file.name || `Pista ${idx+1}`;
+    el.querySelector('.track-role').textContent = roleLabel(file.role);
+    const audio = new Audio(api(file.url));
+    audio.preload = 'metadata';
+    audio.crossOrigin = 'anonymous';
+    const track = {
+      file, el, audio, canvas: el.querySelector('canvas'), ctx: el.querySelector('canvas').getContext('2d'),
+      buffer: null, duration: 0, regions: Array.isArray(saved?.regions) ? saved.regions.map(r=>({start:+r.start,end:+r.end})).filter(validRegion) : [],
+      selection: null, muted: !!saved?.muted, solo: !!saved?.solo, volume: Number.isFinite(saved?.volume) ? saved.volume : 1,
+      pointerStart: null, lastAction: null,
+    };
+    const vol = el.querySelector('.vol input');
+    vol.value = String(track.volume);
+    el.querySelector('.volval').textContent = `${Math.round(track.volume*100)}%`;
+    el.querySelector('.mute').classList.toggle('on', track.muted);
+    el.querySelector('.solo').classList.toggle('on', track.solo);
+
+    audio.addEventListener('loadedmetadata', () => {
+      if(Number.isFinite(audio.duration)){
+        track.duration = audio.duration;
+        state.duration = Math.max(state.duration, audio.duration);
+        masterRange.max = String(state.duration || 1);
+        updateTimeLabel(); drawTrack(track);
+      }
+    });
+    audio.addEventListener('ended', () => { if(state.playing && allEnded()) pauseAll(true); });
+    el.querySelector('.mute').addEventListener('click', e => { track.muted=!track.muted; e.currentTarget.classList.toggle('on',track.muted); applyAudibility(); autosave(); });
+    el.querySelector('.solo').addEventListener('click', e => { track.solo=!track.solo; e.currentTarget.classList.toggle('on',track.solo); applyAudibility(); autosave(); });
+    vol.addEventListener('input', () => { track.volume=Number(vol.value); el.querySelector('.volval').textContent=`${Math.round(track.volume*100)}%`; applyAudibility(); autosave(); });
+    el.querySelector('.orig').addEventListener('click', () => downloadUrl(api(file.url), file.name || `stem_${idx+1}.wav`));
+    el.querySelector('.edited').addEventListener('click', () => downloadEditedTrack(track));
+    el.querySelector('.silence').addEventListener('click', () => silenceSelection(track));
+    el.querySelector('.undo').addEventListener('click', () => undoTrack(track));
+    el.querySelector('.clear').addEventListener('click', () => { if(track.regions.length){ track.lastAction={type:'replace',regions:track.regions.map(r=>({...r}))}; track.regions=[]; drawTrack(track); autosave(); }});
+    bindCanvas(track);
+    return track;
+  }
+
+  function validRegion(r){ return r && Number.isFinite(+r.start) && Number.isFinite(+r.end) && +r.end > +r.start; }
+
+  function bindCanvas(track){
+    const c = track.canvas;
+    const posTime = e => {
+      const rect=c.getBoundingClientRect();
+      const x=Math.max(0,Math.min(rect.width,e.clientX-rect.left));
+      return (x/rect.width) * (track.duration || state.duration || 0);
+    };
+    c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); track.pointerStart=posTime(e); track.selection={start:track.pointerStart,end:track.pointerStart}; drawTrack(track); });
+    c.addEventListener('pointermove', e => { if(track.pointerStart==null) return; const t=posTime(e); track.selection={start:Math.min(track.pointerStart,t),end:Math.max(track.pointerStart,t)}; drawTrack(track); updateSelectionText(track); });
+    c.addEventListener('pointerup', e => {
+      if(track.pointerStart==null) return;
+      const t=posTime(e), a=Math.min(track.pointerStart,t), b=Math.max(track.pointerStart,t);
+      track.pointerStart=null;
+      if(Math.abs(b-a)<0.05){ track.selection=null; seekAll(t); }
+      else track.selection={start:a,end:b};
+      drawTrack(track); updateSelectionText(track);
+    });
+  }
+
+  function updateSelectionText(track){
+    const info=track.el.querySelector('.sel-info'), btn=track.el.querySelector('.silence');
+    if(track.selection && track.selection.end-track.selection.start>=0.05){
+      info.textContent=`Selección: ${fmt(track.selection.start)} → ${fmt(track.selection.end)} (${(track.selection.end-track.selection.start).toFixed(2)} s)`;
+      btn.disabled=false;
+    }else{
+      info.textContent='Arrastra sobre la onda para seleccionar un tramo.';
+      btn.disabled=true;
+    }
+  }
+
+  function silenceSelection(track){
+    if(!track.selection || track.selection.end-track.selection.start<0.05) return;
+    const region={start:track.selection.start,end:track.selection.end};
+    track.lastAction={type:'add',region:{...region}};
+    track.regions.push(region);
+    track.regions=mergeRegions(track.regions);
+    track.selection=null; updateSelectionText(track); drawTrack(track); autosave(); applyAudibility();
+  }
+  function mergeRegions(regions){
+    const sorted=regions.filter(validRegion).map(r=>({start:+r.start,end:+r.end})).sort((a,b)=>a.start-b.start);
+    const out=[];
+    for(const r of sorted){ const last=out[out.length-1]; if(last && r.start<=last.end+0.01) last.end=Math.max(last.end,r.end); else out.push({...r}); }
+    return out;
+  }
+  function undoTrack(track){
+    if(track.lastAction?.type==='add'){
+      const x=track.lastAction.region;
+      track.regions=track.regions.filter(r=>Math.abs(r.start-x.start)>.01 || Math.abs(r.end-x.end)>.01);
+    }else if(track.lastAction?.type==='replace') track.regions=track.lastAction.regions.map(r=>({...r}));
+    else if(track.regions.length) track.regions.pop();
+    track.lastAction=null; drawTrack(track); autosave(); applyAudibility();
+  }
+  function undoLastGlobal(){
+    const t=[...state.tracks].reverse().find(x=>x.lastAction || x.regions.length);
+    if(t) undoTrack(t);
+  }
+
+  async function loadWaveform(track){
+    const status=track.el.querySelector('.wave-status');
+    try{
+      status.textContent='Cargando onda…';
+      const r=await fetch(api(track.file.url));
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      const ab=await r.arrayBuffer();
+      track.buffer=await audioCtx.decodeAudioData(ab.slice(0));
+      track.duration=track.buffer.duration;
+      state.duration=Math.max(state.duration,track.duration);
+      masterRange.max=String(state.duration || 1);
+      status.textContent='Lista · arrastra para seleccionar';
+      setTimeout(()=>{status.style.opacity='.25'},1200);
+      drawTrack(track);
+    }catch(e){
+      status.textContent=`Onda no disponible: ${e.message || e}`;
+      drawTrack(track);
+    }
+  }
+
+  function drawTrack(track){
+    const c=track.canvas, ctx=track.ctx, w=c.width, h=c.height;
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle='#0a0e14'; ctx.fillRect(0,0,w,h);
+    const dur=track.duration || state.duration || 1;
+    ctx.fillStyle='rgba(255,79,104,.20)';
+    for(const r of track.regions){ const x1=r.start/dur*w, x2=r.end/dur*w; ctx.fillRect(x1,0,Math.max(1,x2-x1),h); }
+    if(track.buffer){
+      const data=track.buffer.getChannelData(0), mid=h/2, step=Math.max(1,Math.floor(data.length/w));
+      ctx.strokeStyle='#7d6cff'; ctx.lineWidth=1; ctx.beginPath();
+      for(let x=0;x<w;x++){
+        const start=x*step, end=Math.min(data.length,start+step); let min=1,max=-1;
+        for(let i=start;i<end;i++){ const v=data[i]; if(v<min)min=v; if(v>max)max=v; }
+        ctx.moveTo(x,mid+min*mid*.92); ctx.lineTo(x,mid+max*mid*.92);
+      }
+      ctx.stroke();
+    }else{
+      ctx.strokeStyle='#2c3442'; ctx.beginPath(); ctx.moveTo(0,h/2); ctx.lineTo(w,h/2); ctx.stroke();
+    }
+    if(track.selection){
+      const x1=track.selection.start/dur*w, x2=track.selection.end/dur*w;
+      ctx.fillStyle='rgba(90,210,255,.18)'; ctx.fillRect(x1,0,Math.max(1,x2-x1),h);
+      ctx.strokeStyle='#5ad2ff'; ctx.strokeRect(x1+.5,.5,Math.max(1,x2-x1)-1,h-1);
+    }
+    if(state.currentTime>=0){ const x=Math.min(w,Math.max(0,state.currentTime/dur*w)); ctx.strokeStyle='#f3f6fb'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+  }
+
+  function isRegionMuted(track,time){ return track.regions.some(r=>time>=r.start && time<r.end); }
+  function anySolo(){ return state.tracks.some(t=>t.solo); }
+  function applyAudibility(){
+    const solo=anySolo();
+    for(const t of state.tracks){
+      const audible=!t.muted && (!solo || t.solo) && !isRegionMuted(t,state.currentTime);
+      t.audio.volume=audible ? Math.max(0,Math.min(1,t.volume)) : 0;
+    }
+  }
+
+  async function playAll(){
+    if(!state.tracks.length) return;
+    try{ if(audioCtx.state==='suspended') await audioCtx.resume(); }catch(_){}
+    const t=Math.min(state.currentTime,state.duration || 0);
+    for(const tr of state.tracks){
+      try{ if(Math.abs((tr.audio.currentTime||0)-t)>.12) tr.audio.currentTime=t; }catch(_){}
+    }
+    applyAudibility();
+    const plays=state.tracks.map(tr=>tr.audio.play().catch(()=>null));
+    await Promise.all(plays);
+    state.playing=true; playBtn.textContent='⏸ Pausar todas'; tick();
+  }
+  function pauseAll(ended=false){
+    for(const t of state.tracks) t.audio.pause();
+    state.playing=false; playBtn.textContent='▶ Reproducir todas'; cancelAnimationFrame(state.raf);
+    if(ended){ state.currentTime=state.duration; masterRange.value=String(state.currentTime); }
+    updateVisuals();
+  }
+  function stopAll(){
+    for(const t of state.tracks){ t.audio.pause(); try{t.audio.currentTime=0}catch(_){} }
+    state.playing=false; state.currentTime=0; if(playBtn) playBtn.textContent='▶ Reproducir todas'; cancelAnimationFrame(state.raf); if(masterRange) masterRange.value='0'; updateVisuals();
+  }
+  function seekAll(time){
+    state.currentTime=Math.max(0,Math.min(state.duration || 0,Number(time)||0));
+    for(const t of state.tracks){ try{t.audio.currentTime=Math.min(state.currentTime,t.duration||state.currentTime)}catch(_){} }
+    masterRange.value=String(state.currentTime); applyAudibility(); updateVisuals();
+  }
+  function tick(){
+    if(!state.playing) return;
+    const master=state.tracks.find(t=>!t.audio.paused && Number.isFinite(t.audio.currentTime));
+    if(master) state.currentTime=master.audio.currentTime;
+    if(state.duration && state.currentTime>=state.duration-.03){ pauseAll(true); return; }
+    masterRange.value=String(state.currentTime); applyAudibility(); updateVisuals(); state.raf=requestAnimationFrame(tick);
+  }
+  function updateVisuals(){ updateTimeLabel(); for(const t of state.tracks) drawTrack(t); }
+  function updateTimeLabel(){ if(masterTime) masterTime.textContent=`${fmt(state.currentTime)} / ${fmt(state.duration)}`; }
+  function allEnded(){ return state.tracks.every(t=>t.audio.ended || (t.duration && t.audio.currentTime>=t.duration-.05)); }
+
+  function projectKey(hash){ return `djgabo-audio-lab:${hash}`; }
+  function autosave(){
+    if(!state.hash) return;
+    const payload={version:1,hash:state.hash,name:state.name,tracks:{}};
+    for(const t of state.tracks) payload.tracks[String(t.file.index)]={regions:t.regions,muted:t.muted,solo:t.solo,volume:t.volume};
+    try{ localStorage.setItem(projectKey(state.hash),JSON.stringify(payload)); saveState.textContent='✓ Ediciones guardadas automáticamente'; }
+    catch(_){ saveState.textContent='No se pudo guardar localmente'; }
+  }
+  function loadSavedProject(hash){ try{ const raw=localStorage.getItem(projectKey(hash)); return raw?JSON.parse(raw):null; }catch(_){return null;} }
+
+  async function ensureBuffer(track){
+    if(track.buffer) return track.buffer;
+    const r=await fetch(api(track.file.url)); if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const ab=await r.arrayBuffer(); track.buffer=await audioCtx.decodeAudioData(ab.slice(0)); track.duration=track.buffer.duration; return track.buffer;
+  }
+  function applyRegionsToChannels(buffer, regions, gain=1){
+    const channels=[]; const sr=buffer.sampleRate;
+    for(let ch=0;ch<buffer.numberOfChannels;ch++){
+      const src=buffer.getChannelData(ch), out=new Float32Array(src.length); out.set(src);
+      if(gain!==1) for(let i=0;i<out.length;i++) out[i]*=gain;
+      for(const r of regions){ const a=Math.max(0,Math.floor(r.start*sr)), b=Math.min(out.length,Math.ceil(r.end*sr)); out.fill(0,a,b); }
+      channels.push(out);
+    }
+    return {channels,sampleRate:sr,length:buffer.length};
+  }
+  function wavBlob(channels,sampleRate){
+    const n=channels.length, length=channels[0]?.length||0, bytes=44+length*n*2, ab=new ArrayBuffer(bytes), dv=new DataView(ab);
+    const str=(o,s)=>{for(let i=0;i<s.length;i++)dv.setUint8(o+i,s.charCodeAt(i));};
+    str(0,'RIFF'); dv.setUint32(4,bytes-8,true); str(8,'WAVE'); str(12,'fmt '); dv.setUint32(16,16,true); dv.setUint16(20,1,true); dv.setUint16(22,n,true); dv.setUint32(24,sampleRate,true); dv.setUint32(28,sampleRate*n*2,true); dv.setUint16(32,n*2,true); dv.setUint16(34,16,true); str(36,'data'); dv.setUint32(40,length*n*2,true);
+    let o=44; for(let i=0;i<length;i++) for(let ch=0;ch<n;ch++){ const v=Math.max(-1,Math.min(1,channels[ch][i]||0)); dv.setInt16(o,v<0?v*0x8000:v*0x7fff,true); o+=2; }
+    return new Blob([ab],{type:'audio/wav'});
+  }
+  function triggerBlob(blob,name){ const u=URL.createObjectURL(blob), a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),1500); }
+  function downloadUrl(url,name){ const a=document.createElement('a'); a.href=url; a.download=safeName(name); document.body.appendChild(a); a.click(); a.remove(); }
+  async function downloadEditedTrack(track){
+    const btn=track.el.querySelector('.edited'), old=btn.textContent; btn.disabled=true; btn.textContent='Preparando…';
+    try{ const b=await ensureBuffer(track), rendered=applyRegionsToChannels(b,track.regions,track.volume), blob=wavBlob(rendered.channels,rendered.sampleRate); triggerBlob(blob,`${safeName(track.file.name).replace(/\.[^.]+$/,'')}_EDITADO.wav`); }
+    catch(e){ alert(`No se pudo exportar: ${e.message||e}`); }
+    finally{ btn.disabled=false; btn.textContent=old; }
+  }
+  function resampleChannel(src,srcRate,dstRate,dstLength){
+    if(srcRate===dstRate && src.length===dstLength) return src;
+    const out=new Float32Array(dstLength), ratio=srcRate/dstRate;
+    for(let i=0;i<dstLength;i++){ const p=i*ratio, a=Math.floor(p), f=p-a, x=src[Math.min(a,src.length-1)]||0, y=src[Math.min(a+1,src.length-1)]||0; out[i]=x+(y-x)*f; }
+    return out;
+  }
+  async function downloadMix(){
+    const btn=root.querySelector('#djDownloadMix'), old=btn.textContent; btn.disabled=true; btn.textContent='Preparando mezcla…';
+    try{
+      const solo=anySolo(); const audible=state.tracks.filter(t=>!t.muted && (!solo||t.solo));
+      if(!audible.length) throw new Error('No hay pistas audibles para mezclar');
+      const buffers=await Promise.all(audible.map(ensureBuffer));
+      const rate=Math.max(...buffers.map(b=>b.sampleRate)); const duration=Math.max(...buffers.map(b=>b.duration)); const length=Math.ceil(duration*rate); const chCount=Math.max(...buffers.map(b=>b.numberOfChannels)); const mix=Array.from({length:chCount},()=>new Float32Array(length));
+      audible.forEach((t,idx)=>{
+        const b=buffers[idx], rendered=applyRegionsToChannels(b,t.regions,t.volume);
+        for(let ch=0;ch<chCount;ch++){ const src=rendered.channels[Math.min(ch,rendered.channels.length-1)], rs=resampleChannel(src,b.sampleRate,rate,length), dst=mix[ch]; for(let i=0;i<length;i++) dst[i]+=rs[i]; }
+      });
+      let peak=0; for(const ch of mix) for(let i=0;i<ch.length;i++) peak=Math.max(peak,Math.abs(ch[i])); if(peak>1){ const g=.98/peak; for(const ch of mix) for(let i=0;i<ch.length;i++) ch[i]*=g; }
+      triggerBlob(wavBlob(mix,rate),`${safeName(state.name).replace(/\.[^.]+$/,'')}_MEZCLA_EDITADA.wav`);
+    }catch(e){ alert(`No se pudo exportar la mezcla: ${e.message||e}`); }
+    finally{ btn.disabled=false; btn.textContent=old; }
+  }
+
+  function closeProject(){ stopAll(); state.hash=''; state.files=[]; state.tracks=[]; tracksBox.innerHTML=''; editor.classList.remove('active'); }
+
+  const priorFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init){
+    const url = typeof input === 'string' ? input : (input?.url || '');
+    const response = await priorFetch(input, init);
+    if(/\/api\/mvsep\/result\/[A-Za-z0-9_-]+(?:\?|$)/.test(url) && !/\/crowd\//.test(url) && response.ok){
+      try{
+        const p=await response.clone().json();
+        if(p?.hash) setTimeout(()=>openJob(p.hash),0);
+      }catch(_){}
+    }
+    return response;
+  };
+
+  const ready = () => { mount(); };
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',ready,{once:true}); else ready();
+})();
+</script>

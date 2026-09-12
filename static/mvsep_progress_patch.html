@@ -11,6 +11,7 @@
   #djgaboMvsepProgress.dj-ok .dj-fill{background:linear-gradient(90deg,#1fbf83,#42dca2)}
   #djgaboMvsepProgress.dj-error{border-color:rgba(255,89,113,.42)}
   #djgaboMvsepProgress.dj-error .dj-fill{background:#ff5971}
+  select[data-djgabo-model-locked="1"]{opacity:.88;cursor:not-allowed}
 </style>
 <script id="djgabo-mvsep-progress-patch">
 (() => {
@@ -30,7 +31,30 @@
     return [...document.querySelectorAll('button')].find(b => /procesar/i.test((b.textContent || '').trim())) || null;
   }
 
+  function lockDefinitiveModel(){
+    for (const select of document.querySelectorAll('select')) {
+      const options = [...select.options];
+      const team = options.find(o => /mvsep\s*team/i.test(o.textContent || ''));
+      const looksLikeModel = team || options.some(o => /gabox|frazer|becruily|anvuew/i.test(o.textContent || ''));
+      if (!looksLikeModel || !team) continue;
+      if (select.dataset.djgaboModelLocked === '1') return select;
+      select.value = team.value;
+      team.selected = true;
+      for (const option of [...select.options]) {
+        if (option !== team) option.remove();
+      }
+      team.textContent = 'BS RoFormer · MVSep Team';
+      select.disabled = true;
+      select.dataset.djgaboModelLocked = '1';
+      select.title = 'Modelo definitivo para Voz principal + Coros + Instrumental';
+      select.dispatchEvent(new Event('change', {bubbles:true}));
+      return select;
+    }
+    return null;
+  }
+
   function mount(){
+    lockDefinitiveModel();
     if (panel && document.body.contains(panel)) return true;
     processBtn = findProcessButton();
     if (!processBtn) return false;
@@ -66,16 +90,18 @@
   }
 
   function beginProcessing(){
+    lockDefinitiveModel();
     startedAt = Date.now(); currentPct = 4; startElapsed();
-    setProgress('Preparando archivo…', 4, 'Iniciando envío a OVH / MVSEP.');
+    setProgress('Preparando archivo…', 4, 'Modelo fijo: BS RoFormer · MVSep Team. Iniciando envío.');
     stopCreep();
     creepTimer = setInterval(() => { if (currentPct < 28) setProgress(titleEl.textContent || 'Preparando…', currentPct + 1, detailEl.textContent || ''); }, 1400);
   }
 
   function markSelected(file){
+    lockDefinitiveModel();
     startedAt = 0; currentPct = 0; if (elapsedTimer) clearInterval(elapsedTimer); elapsedTimer = null; stopCreep();
     const mb = file && Number.isFinite(file.size) ? ` · ${(file.size/1024/1024).toFixed(1)} MB` : '';
-    setProgress('✓ Archivo seleccionado', 0, `${file?.name || 'Audio'}${mb} · listo para Procesar.`, 'ok');
+    setProgress('✓ Archivo seleccionado', 0, `${file?.name || 'Audio'}${mb} · modelo: BS RoFormer · MVSep Team.`, 'ok');
     if (timeEl) timeEl.textContent = '00:00';
   }
 
@@ -91,15 +117,29 @@
   function updateFromStatus(p){
     const raw = String(p?.status ?? p?.state ?? p?.data?.status ?? p?.data?.state ?? '').toLowerCase();
     const real = pctFromPayload(p);
-    if (/done|complete|completed|success|finished/.test(raw)) { stopCreep(); setProgress('✓ Separación terminada', 94, 'MVSEP terminó. Cargando stems en el editor…', 'ok'); return; }
-    if (/error|fail|cancel/.test(raw)) { stopCreep(); setProgress('Error en MVSEP', Math.max(currentPct,20), `Estado: ${raw || 'error'}`, 'error'); return; }
-    if (/process|running|separat/.test(raw)) {
+    if (/done|complete|completed|success|finished/.test(raw)) {
       stopCreep();
-      setProgress('MVSEP está separando la canción…', real == null ? Math.max(currentPct,48) : Math.max(40,Math.min(90,real)), real == null ? 'Procesamiento activo · progreso aproximado.' : `Procesamiento ${real}%`);
-      creepTimer = setInterval(() => { if (currentPct < 88) setProgress('MVSEP está separando la canción…', currentPct + 1, 'Procesamiento activo · progreso aproximado.'); }, 3000);
+      setProgress('MVSEP terminó · validando stems…', 94, 'Comprobando que existan Voz principal + Coros + Instrumental.');
+      return;
+    }
+    if (/error|fail|cancel/.test(raw)) { stopCreep(); setProgress('Error en MVSEP', Math.max(currentPct,20), `Estado: ${raw || 'error'}`, 'error'); return; }
+    if (/process|running|separat|distribut|merg/.test(raw)) {
+      stopCreep();
+      setProgress('MVSEP está separando la canción…', real == null ? Math.max(currentPct,48) : Math.max(40,Math.min(90,real)), real == null ? 'BS RoFormer · MVSep Team · progreso aproximado.' : `Procesamiento ${real}%`);
+      creepTimer = setInterval(() => { if (currentPct < 88) setProgress('MVSEP está separando la canción…', currentPct + 1, 'BS RoFormer · MVSep Team · progreso aproximado.'); }, 3000);
       return;
     }
     if (raw) { stopCreep(); setProgress('En cola de MVSEP…', real == null ? Math.max(currentPct,34) : Math.max(30,Math.min(70,real)), `Estado MVSEP: ${raw}`); }
+  }
+
+  async function responseMessage(r){
+    let msg = `HTTP ${r.status}`;
+    try {
+      const p = await r.clone().json();
+      msg = p?.detail || p?.message || msg;
+      if (typeof msg !== 'string') msg = JSON.stringify(msg);
+    } catch(_){}
+    return msg;
   }
 
   document.addEventListener('change', ev => {
@@ -114,26 +154,43 @@
 
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async function(input, init){
+    lockDefinitiveModel();
     const url = typeof input === 'string' ? input : (input?.url || '');
     const isCreate = /\/api\/mvsep\/karaoke(?:\?|$)/.test(url);
     const isStatus = /\/api\/mvsep\/status\//.test(url);
-    const isResult = /\/api\/mvsep\/result\//.test(url);
+    const isResult = /\/api\/mvsep\/result\//.test(url) && !/\/crowd\//.test(url);
     const isStem = /\/api\/mvsep\/file\//.test(url);
-    if (isCreate) { if (!startedAt) beginProcessing(); setProgress('Subiendo canción a MVSEP…', Math.max(currentPct,10), 'No cierres esta pestaña. El envío puede tardar según el tamaño del WAV.'); }
+    if (isCreate) { if (!startedAt) beginProcessing(); setProgress('Subiendo canción a MVSEP…', Math.max(currentPct,10), 'Modelo definitivo: BS RoFormer · MVSep Team.'); }
     let r;
     try { r = await nativeFetch(input, init); }
     catch (e) { if (isCreate || isStatus || isResult || isStem) setProgress('Error de conexión', Math.max(currentPct,10), e?.message || String(e), 'error'); throw e; }
+
     if (isCreate) {
-      if (r.ok) { stopCreep(); setProgress('Trabajo enviado a MVSEP', 32, 'Esperando turno / inicio de separación.'); }
-      else { let msg = `HTTP ${r.status}`; try { const p = await r.clone().json(); msg = p?.detail || p?.message || msg; } catch(_){} setProgress('MVSEP rechazó el trabajo', Math.max(currentPct,15), msg, 'error'); }
+      if (r.ok) { stopCreep(); setProgress('Trabajo enviado a MVSEP', 32, 'BS RoFormer · MVSep Team · esperando turno / inicio.'); }
+      else setProgress('MVSEP rechazó el trabajo', Math.max(currentPct,15), await responseMessage(r), 'error');
     }
     if (isStatus && r.ok) { try { updateFromStatus(await r.clone().json()); } catch(_){} }
-    if (isResult && r.ok) setProgress('Cargando resultados…', 97, 'Los stems ya están listos. Preparando Voz principal + Coros + Instrumental.');
-    if (isStem && r.ok) setProgress('✓ Stems disponibles', 100, 'Audio cargado en el editor. Ya puedes escuchar, silenciar y descargar.', 'ok');
+    if (isResult) {
+      if (r.ok) {
+        try {
+          const p = await r.clone().json();
+          const roles = Array.isArray(p?.roles) ? p.roles.join(' + ') : 'voice + back + instrumental';
+          setProgress('✓ 3 stems confirmados', 97, `MVSEP devolvió: ${roles}. Cargando ondas…`, 'ok');
+        } catch(_) {
+          setProgress('✓ 3 stems confirmados', 97, 'Cargando Voz principal + Coros + Instrumental…', 'ok');
+        }
+      } else {
+        stopCreep();
+        setProgress('ERROR · resultado incompleto', Math.max(currentPct,94), await responseMessage(r), 'error');
+      }
+    }
+    if (isStem && !r.ok) setProgress('ERROR descargando stem', Math.max(currentPct,95), await responseMessage(r), 'error');
+    if (isStem && r.ok) setProgress('Cargando stems en el editor…', 99, 'Descargando audio desde MVSEP.');
     return r;
   };
 
-  new MutationObserver(() => mount()).observe(document.documentElement,{childList:true,subtree:true});
+  new MutationObserver(() => { mount(); lockDefinitiveModel(); }).observe(document.documentElement,{childList:true,subtree:true});
   mount();
+  lockDefinitiveModel();
 })();
 </script>

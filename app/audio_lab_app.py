@@ -15,17 +15,25 @@ from .mvsep import MVSEPClient, MVSEPError
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 AUDIO_LAB_BUNDLE = STATIC_DIR / "audio_lab.html.gz.b64"
+AUDIO_LAB_PROGRESS_PATCH = STATIC_DIR / "mvsep_progress_patch.html"
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus"}
 ALLOWED_MVSEP_HOSTS = {"mvsep.com", "www.mvsep.com", "de.mvsep.com", "de2.mvsep.com", "hk.mvsep.com", "mirror.mvsep.com"}
 
-app = FastAPI(title="DJGABO Audio Lab Web", version="1.0.0")
+app = FastAPI(title="DJGABO Audio Lab Web", version="1.0.1")
 mvsep = MVSEPClient()
 
 
 def _audio_lab_html() -> str:
     try:
         packed = base64.b64decode(AUDIO_LAB_BUNDLE.read_text(encoding="ascii").strip())
-        return gzip.decompress(packed).decode("utf-8")
+        html = gzip.decompress(packed).decode("utf-8")
+        patch = AUDIO_LAB_PROGRESS_PATCH.read_text(encoding="utf-8")
+        if "djgabo-mvsep-progress-patch" not in html:
+            if "</body>" in html:
+                html = html.replace("</body>", patch + "\n</body>", 1)
+            else:
+                html += patch
+        return html
     except Exception as exc:
         raise RuntimeError(f"No se pudo cargar el frontend Audio Lab: {exc}") from exc
 
@@ -40,12 +48,13 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "DJGABO_AUDIO_LAB_WEB",
-        "version": "1.0.0",
+        "version": "1.0.1",
         "browser_editor": True,
         "mvsep_configured": mvsep.is_configured(),
         "mvsep_algorithm": "MVSep Karaoke (lead/back vocals)",
         "sep_type": 49,
         "output_format": "wav16",
+        "progress_ui": True,
     }
 
 

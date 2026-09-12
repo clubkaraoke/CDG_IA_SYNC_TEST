@@ -26,7 +26,7 @@ ALLOWED_MVSEP_HOSTS = {
     "mirror.mvsep.com",
 }
 
-app = FastAPI(title="DJGABO Audio Lab Web", version="1.0.2")
+app = FastAPI(title="DJGABO Audio Lab Web", version="1.0.3")
 mvsep = MVSEPClient()
 
 
@@ -55,10 +55,11 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "DJGABO_AUDIO_LAB_WEB",
-        "version": "1.0.2",
+        "version": "1.0.3",
         "browser_editor": True,
         "mvsep_configured": mvsep.is_configured(),
         "progress_ui": True,
+        "dynamic_mvsep_outputs": True,
         "karaoke": {
             "function": "Voz principal + Coros + Instrumental",
             "algorithm": "MVSep Karaoke (lead/back vocals)",
@@ -66,7 +67,8 @@ async def health() -> dict[str, Any]:
             "model": "BS Roformer — MVSep Team",
             "add_opt1": 6,
             "add_opt2": 1,
-            "required_stems": ["voice", "back", "instrumental"],
+            "required_primary_stems": ["voice", "back", "instrumental"],
+            "known_outputs": ["vocals_full", "voice", "back", "instrumental", "back_instrumental"],
         },
         "crowd_removal": {
             "function": "Quitar público / aplausos",
@@ -89,7 +91,7 @@ def _validate_audio(audio: UploadFile) -> None:
 @app.post("/api/mvsep/karaoke")
 async def create_karaoke_job(
     audio: UploadFile = File(...),
-    model: int = Form(6),  # se acepta por compatibilidad con el frontend, pero se ignora
+    model: int = Form(6),
 ) -> dict[str, Any]:
     _validate_audio(audio)
     try:
@@ -105,7 +107,7 @@ async def create_karaoke_job(
         "model": 6,
         "model_name": "BS Roformer — MVSep Team",
         "requested_model_ignored": model != 6,
-        "expected_stems": ["voice", "back", "instrumental"],
+        "required_primary_stems": ["voice", "back", "instrumental"],
     }
 
 
@@ -184,42 +186,28 @@ def _normalized_text(info: Any) -> str:
 
 def _classify_karaoke(info: Any, idx: int) -> str:
     text = _normalized_text(info)
+
+    # MVSEP Team may return five useful outputs. Keep every one distinct.
+    if "vocals full" in text or "vocal full" in text:
+        return "vocals_full"
     if any(token in text for token in (
-        "vocals back",
-        "vocal back",
-        "back vocals",
-        "back vocal",
-        "background vocals",
-        "background vocal",
-        "backing vocals",
-        "backing vocal",
-        "chorus",
-        "choir",
-        "coros",
-        "coro",
+        "vocals lead", "vocal lead", "lead vocals", "lead vocal", "main vocals", "main vocal", "voice main",
+    )):
+        return "voice"
+    if any(token in text for token in (
+        "vocals back", "vocal back", "back vocals", "back vocal", "background vocals", "background vocal",
+        "backing vocals", "backing vocal", "chorus", "choir", "coros", "coro",
     )):
         return "back"
+    if "back instrum" in text or "back instrumental" in text or "backing instrum" in text:
+        return "back_instrumental"
     if any(token in text for token in (
-        "instrumental",
-        "instrum",
-        "accompaniment",
-        "music only",
-        "karaoke",
+        "instrum only", "instrumental only", "instrumental", "instrum", "accompaniment", "music only", "karaoke",
     )):
         return "instrumental"
-    if any(token in text for token in (
-        "vocals lead",
-        "vocal lead",
-        "lead vocals",
-        "lead vocal",
-        "main vocals",
-        "main vocal",
-        "voice main",
-    )):
-        return "voice"
     if "vocals" in text or "vocal" in text or "voice" in text:
-        return "voice"
-    return ("voice", "back", "instrumental")[idx] if idx < 3 else "extra"
+        return "vocals_full"
+    return f"extra_{idx + 1}"
 
 
 def _classify_crowd(info: Any, idx: int) -> str:
@@ -284,12 +272,17 @@ async def karaoke_result(job_hash: str) -> dict[str, Any]:
         raise HTTPException(
             502,
             detail=(
-                "MVSEP terminó, pero no devolvió los 3 stems obligatorios. "
+                "MVSEP terminó, pero faltan pistas primarias. "
                 f"Faltan: {', '.join(missing)}. "
-                f"Devueltos ({len(raw_files)}): {returned or ['ninguno']}. "
-                "No se marca el trabajo como correcto."
+                f"Devueltos ({len(raw_files)}): {returned or ['ninguno']}."
             ),
         )
+
+    primary = {
+        "voice": next((item for item in files if item["role"] == "voice"), None),
+        "back": next((item for item in files if item["role"] == "back"), None),
+        "instrumental": next((item for item in files if item["role"] == "instrumental"), None),
+    }
 
     return {
         "ok": True,
@@ -299,8 +292,10 @@ async def karaoke_result(job_hash: str) -> dict[str, Any]:
         "model_name": "BS Roformer — MVSep Team",
         "files": files,
         "file_count": len(files),
-        "roles": sorted(roles),
-        "validated_three_stems": True,
+        "roles": [item["role"] for item in files],
+        "primary": primary,
+        "validated_primary_stems": True,
+        "all_outputs_preserved": True,
     }
 
 
@@ -332,7 +327,7 @@ async def crowd_result(job_hash: str) -> dict[str, Any]:
         "model_name": "BS Roformer — Crowd Removal",
         "files": files,
         "file_count": len(files),
-        "roles": sorted(roles),
+        "roles": [item["role"] for item in files],
     }
 
 

@@ -85,13 +85,7 @@ class MVSEPClient:
         })
 
     async def create_karaoke_job(self, upload_file: Any) -> dict[str, Any]:
-        """Función definitiva 1: Voz principal + Coros + Instrumental.
-
-        MVSep Karaoke (sep_type 49)
-        add_opt1=6: BS Roformer by MVSep Team
-        add_opt2=1: Extract vocals first
-        output_format=1: WAV 16-bit
-        """
+        """Función 1: Voz principal + Coros + Instrumental."""
         return await self._create_job(upload_file, {
             "sep_type": "49",
             "add_opt1": str(self.KARAOKE_MODEL_MVSEP_TEAM),
@@ -101,12 +95,7 @@ class MVSEPClient:
         })
 
     async def create_crowd_removal_job(self, upload_file: Any) -> dict[str, Any]:
-        """Función definitiva 2: quitar público / aplausos.
-
-        MVSep Crowd removal (sep_type 34)
-        add_opt1=2: BS Roformer
-        output_format=1: WAV 16-bit
-        """
+        """Función 2: quitar público / aplausos."""
         return await self._create_job(upload_file, {
             "sep_type": "34",
             "add_opt1": str(self.CROWD_MODEL_BS_ROFORMER),
@@ -123,6 +112,29 @@ class MVSEPClient:
             )
         response.raise_for_status()
         return response.json()
+
+    async def get_history(self, start: int = 0, limit: int = 10) -> dict[str, Any]:
+        """Historial real de separaciones de la cuenta MVSEP.
+
+        La API admite start >= 0 y limit <= 20. El token nunca sale al navegador.
+        """
+        token = self.ensure_configured()
+        start = max(0, int(start))
+        limit = max(1, min(20, int(limit)))
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/app/separation_history",
+                params={"api_token": token, "start": start, "limit": limit},
+            )
+        try:
+            payload = response.json()
+        except Exception as exc:
+            raise MVSEPError(f"MVSEP devolvió historial no JSON ({response.status_code})") from exc
+        if response.is_error:
+            raise MVSEPError(f"MVSEP historial respondió HTTP {response.status_code}")
+        if not payload.get("success"):
+            raise MVSEPError("MVSEP rechazó la consulta del historial")
+        return payload
 
     async def get_status(self, job_hash: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=self.timeout) as client:

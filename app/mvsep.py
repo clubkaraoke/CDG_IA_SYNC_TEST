@@ -14,6 +14,9 @@ class MVSEPError(RuntimeError):
 class MVSEPClient:
     """Cliente MVSEP usado por los laboratorios DJGABO."""
 
+    KARAOKE_MODEL_MVSEP_TEAM = 6
+    CROWD_MODEL_BS_ROFORMER = 2
+
     def __init__(self) -> None:
         self.base_url = os.getenv("MVSEP_API_BASE", "https://mvsep.com/api").rstrip("/")
         self.token_file = Path(os.getenv("MVSEP_TOKEN_FILE", "/runtime/mvsep_token"))
@@ -81,19 +84,32 @@ class MVSEPClient:
             "is_demo": "0",
         })
 
-    async def create_karaoke_job(self, upload_file: Any, model: int = 6) -> dict[str, Any]:
-        """Aísla lead/back vocals con MVSep Karaoke (sep_type 49).
+    async def create_karaoke_job(self, upload_file: Any) -> dict[str, Any]:
+        """Función definitiva 1: Voz principal + Coros + Instrumental.
 
-        add_opt1: modelo Karaoke (0..7)
-        add_opt2: 1 = extraer vocals primero, necesario para disponer de back vocals separado
-        output_format: 1 = WAV 16-bit
+        MVSep Karaoke (sep_type 49)
+        add_opt1=6: BS Roformer by MVSep Team
+        add_opt2=1: Extract vocals first
+        output_format=1: WAV 16-bit
         """
-        if model not in range(0, 8):
-            model = 6
         return await self._create_job(upload_file, {
             "sep_type": "49",
-            "add_opt1": str(model),
+            "add_opt1": str(self.KARAOKE_MODEL_MVSEP_TEAM),
             "add_opt2": "1",
+            "output_format": "1",
+            "is_demo": "0",
+        })
+
+    async def create_crowd_removal_job(self, upload_file: Any) -> dict[str, Any]:
+        """Función definitiva 2: quitar público / aplausos.
+
+        MVSep Crowd removal (sep_type 34)
+        add_opt1=2: BS Roformer
+        output_format=1: WAV 16-bit
+        """
+        return await self._create_job(upload_file, {
+            "sep_type": "34",
+            "add_opt1": str(self.CROWD_MODEL_BS_ROFORMER),
             "output_format": "1",
             "is_demo": "0",
         })

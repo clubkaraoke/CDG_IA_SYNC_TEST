@@ -3,12 +3,12 @@ from __future__ import annotations
 import base64
 import gzip
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, AsyncIterator, Callable
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, Response
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 from .mvsep import MVSEPClient, MVSEPError
 
@@ -26,7 +26,7 @@ ALLOWED_MVSEP_HOSTS = {
     "mirror.mvsep.com",
 }
 
-app = FastAPI(title="DJGABO Audio Lab Web", version="1.0.3")
+app = FastAPI(title="DJGABO Audio Lab Web", version="1.0.4")
 mvsep = MVSEPClient()
 
 
@@ -55,11 +55,13 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "DJGABO_AUDIO_LAB_WEB",
-        "version": "1.0.3",
+        "version": "1.0.4",
         "browser_editor": True,
         "mvsep_configured": mvsep.is_configured(),
         "progress_ui": True,
         "dynamic_mvsep_outputs": True,
+        "dynamic_mixer": True,
+        "range_streaming": True,
         "karaoke": {
             "function": "Voz principal + Coros + Instrumental",
             "algorithm": "MVSep Karaoke (lead/back vocals)",
@@ -186,8 +188,6 @@ def _normalized_text(info: Any) -> str:
 
 def _classify_karaoke(info: Any, idx: int) -> str:
     text = _normalized_text(info)
-
-    # MVSEP Team may return five useful outputs. Keep every one distinct.
     if "vocals full" in text or "vocal full" in text:
         return "vocals_full"
     if any(token in text for token in (
@@ -332,7 +332,7 @@ async def crowd_result(job_hash: str) -> dict[str, Any]:
 
 
 @app.get("/api/mvsep/file/{job_hash}/{index}")
-async def separation_file(job_hash: str, index: int) -> Response:
+async def separation_file(job_hash: str, index: int, request: Request) -> StreamingResponse:
     try:
         payload = await mvsep.get_status(job_hash)
     except Exception as exc:
@@ -347,19 +347,51 @@ async def separation_file(job_hash: str, index: int) -> Response:
     url = _remote_url(info)
     if not url:
         raise HTTPException(502, "MVSEP no devolvió una URL de descarga válida para este stem")
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(30.0, read=1200.0, write=1200.0, pool=30.0),
-            follow_redirects=True,
-        ) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-    except Exception as exc:
-        raise HTTPException(502, f"No se pudo descargar el stem desde MVSEP: {exc}") from exc
 
-    name = _display_name(info, index)
-    headers = {
-        "Content-Disposition": f'inline; filename="{name.replace(chr(34), "_")}"',
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0, read=1200.0, write=1200.0, pool=30.0),
+        follow_redirects=True,
+    )
+    upstream_headers: dict[str, str] = {}
+    range_header = request.headers.get("range")
+    if range_header:
+        upstream_headers["Range"] = range_header
+
+    try:
+        upstream_request = client.build_request("GET", url, headers=upstream_headers)
+        upstream = await client.send(upstream_request, stream=True)
+    except Exception as exc:
+        await client.aclose()
+        raise HTTPException(502, f"No se pudo abrir el stream desde MVSEP: {exc}") from exc
+
+    if upstream.status_code >= 400:
+        await upstream.aclose()
+        await client.aclose()
+        raise HTTPException(502, f"MVSEP respondió HTTP {upstream.status_code} al abrir el stem")
+
+    name = _display_name(info, index).replace('"', "_")
+    response_headers: dict[str, str] = {
+        "Content-Disposition": f'inline; filename="{name}"',
         "Cache-Control": "private, max-age=300",
+        "Accept-Ranges": upstream.headers.get("accept-ranges", "bytes"),
     }
-    return Response(content=r.content, media_type=r.headers.get("content-type", "audio/wav"), headers=headers)
+    for header_name in ("content-length", "content-range", "etag", "last-modified"):
+        value = upstream.headers.get(header_name)
+        if value:
+            response_headers[header_name.title()] = value
+
+    async def body() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in upstream.aiter_bytes(chunk_size=256 * 1024):
+                if chunk:
+                    yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        body(),
+        status_code=upstream.status_code,
+        media_type=upstream.headers.get("content-type", "audio/wav"),
+        headers=response_headers,
+    )

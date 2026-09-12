@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import gzip
 from pathlib import Path
@@ -7,7 +8,7 @@ from typing import Any, AsyncIterator, Callable
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from .mvsep import MVSEPClient, MVSEPError
@@ -16,6 +17,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 AUDIO_LAB_BUNDLE = STATIC_DIR / "audio_lab.html.gz.b64"
 AUDIO_LAB_PROGRESS_PATCH = STATIC_DIR / "mvsep_progress_patch.html"
+AUDIO_LAB_WORKSPACE_PATCH = STATIC_DIR / "mvsep_workspace_patch.html"
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus"}
 ALLOWED_MVSEP_HOSTS = {
     "mvsep.com",
@@ -26,7 +28,7 @@ ALLOWED_MVSEP_HOSTS = {
     "mirror.mvsep.com",
 }
 
-app = FastAPI(title="DJGABO Audio Lab Web", version="1.0.4")
+app = FastAPI(title="DJGABO Audio Lab Web", version="1.1.0")
 mvsep = MVSEPClient()
 
 
@@ -34,12 +36,19 @@ def _audio_lab_html() -> str:
     try:
         packed = base64.b64decode(AUDIO_LAB_BUNDLE.read_text(encoding="ascii").strip())
         html = gzip.decompress(packed).decode("utf-8")
-        patch = AUDIO_LAB_PROGRESS_PATCH.read_text(encoding="utf-8")
+        progress_patch = AUDIO_LAB_PROGRESS_PATCH.read_text(encoding="utf-8")
+        workspace_patch = AUDIO_LAB_WORKSPACE_PATCH.read_text(encoding="utf-8")
+        patches: list[str] = []
         if "djgabo-mvsep-progress-patch" not in html:
+            patches.append(progress_patch)
+        if "djgabo-mvsep-workspace-patch" not in html:
+            patches.append(workspace_patch)
+        if patches:
+            injected = "\n".join(patches)
             if "</body>" in html:
-                html = html.replace("</body>", patch + "\n</body>", 1)
+                html = html.replace("</body>", injected + "\n</body>", 1)
             else:
-                html += patch
+                html += injected
         return html
     except Exception as exc:
         raise RuntimeError(f"No se pudo cargar el frontend Audio Lab: {exc}") from exc
@@ -55,12 +64,17 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "DJGABO_AUDIO_LAB_WEB",
-        "version": "1.0.4",
+        "version": "1.1.0",
         "browser_editor": True,
         "mvsep_configured": mvsep.is_configured(),
         "progress_ui": True,
         "dynamic_mvsep_outputs": True,
         "dynamic_mixer": True,
+        "dynamic_editor": True,
+        "mvsep_history": True,
+        "reopen_existing_jobs": True,
+        "browser_silence_edits": True,
+        "project_autosave": True,
         "range_streaming": True,
         "karaoke": {
             "function": "Voz principal + Coros + Instrumental",
@@ -216,7 +230,25 @@ def _classify_crowd(info: Any, idx: int) -> str:
         return "crowd"
     if "other" in text or "music" in text or "no crowd" in text:
         return "other"
-    return ("crowd", "other")[idx] if idx < 2 else "extra"
+    return ("crowd", "other")[idx] if idx < 2 else f"extra_{idx + 1}"
+
+
+def _algorithm_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("name", "title", "algorithm", "description"):
+            item = value.get(key)
+            if isinstance(item, str) and item.strip():
+                return item.strip()
+    return str(value or "")
+
+
+def _classify_generic(info: Any, idx: int, algorithm: Any = None) -> str:
+    alg = _algorithm_text(algorithm).lower()
+    if any(token in alg for token in ("crowd", "audience", "applause")):
+        return _classify_crowd(info, idx)
+    return _classify_karaoke(info, idx)
 
 
 def _remote_url(info: Any) -> str:
@@ -249,6 +281,116 @@ def _result_files(
 
 def _diagnostic_names(raw_files: list[Any], classifier: Callable[[Any, int], str]) -> list[str]:
     return [f"{_display_name(info, idx)} => {classifier(info, idx)}" for idx, info in enumerate(raw_files)]
+
+
+def _input_name(data: dict[str, Any], fallback: str) -> str:
+    info = data.get("input_file")
+    name = _display_name(info, 0) if info else ""
+    if name and not name.startswith("stem_"):
+        return name
+    tags = data.get("tags") or {}
+    if isinstance(tags, dict):
+        artist = str(tags.get("artist") or "").strip()
+        title = str(tags.get("title") or "").strip()
+        if artist and title:
+            return f"{artist} - {title}"
+        if title:
+            return title
+    return fallback
+
+
+@app.get("/api/mvsep/history")
+async def mvsep_history(
+    start: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=20),
+) -> dict[str, Any]:
+    """Historial real de MVSEP, enriquecido sin reprocesar ni gastar créditos."""
+    try:
+        payload = await mvsep.get_history(start=start, limit=limit)
+    except Exception as exc:
+        raise HTTPException(502, f"No se pudo consultar el historial de MVSEP: {exc}") from exc
+
+    raw_items = payload.get("data") or []
+    if not isinstance(raw_items, list):
+        raw_items = []
+
+    async def enrich(row: Any) -> dict[str, Any]:
+        if not isinstance(row, dict):
+            return {"hash": "", "job_exists": False, "status": "invalid"}
+        job_hash = str(row.get("hash") or "").strip()
+        item: dict[str, Any] = {
+            "hash": job_hash,
+            "job_exists": bool(row.get("job_exists")),
+            "credits": row.get("credits"),
+            "time_left": row.get("time_left"),
+            "algorithm": row.get("algorithm"),
+            "algorithm_name": _algorithm_text(row.get("algorithm")),
+            "status": "unknown",
+            "name": job_hash or "Separación MVSEP",
+            "date": None,
+            "file_count": None,
+        }
+        if not job_hash or not item["job_exists"]:
+            item["status"] = "expired"
+            return item
+        try:
+            status_payload = await mvsep.get_status(job_hash)
+            item["status"] = status_payload.get("status") or "unknown"
+            data = status_payload.get("data") or {}
+            if isinstance(data, dict):
+                item["name"] = _input_name(data, item["name"])
+                item["date"] = data.get("date")
+                item["algorithm_name"] = _algorithm_text(data.get("algorithm")) or item["algorithm_name"]
+                if item["status"] == "done":
+                    item["file_count"] = len(_output_files(data))
+        except Exception as exc:
+            item["status"] = "unavailable"
+            item["error"] = str(exc)
+        return item
+
+    items = await asyncio.gather(*(enrich(row) for row in raw_items))
+    return {"ok": True, "start": start, "limit": limit, "items": items}
+
+
+@app.get("/api/mvsep/open/{job_hash}")
+async def open_mvsep_job(job_hash: str) -> dict[str, Any]:
+    """Abre cualquier trabajo existente y conserva TODOS los stems devueltos."""
+    try:
+        payload = await mvsep.get_status(job_hash)
+    except Exception as exc:
+        raise HTTPException(502, f"No se pudo abrir el trabajo MVSEP: {exc}") from exc
+
+    status = payload.get("status")
+    if status != "done":
+        return {
+            "ok": False,
+            "hash": job_hash,
+            "status": status,
+            "message": (payload.get("data") or {}).get("message") if isinstance(payload.get("data"), dict) else None,
+        }
+
+    data = payload.get("data") or {}
+    raw_files = _output_files(data)
+    algorithm = data.get("algorithm")
+    files = _result_files(
+        job_hash,
+        raw_files,
+        lambda info, idx: _classify_generic(info, idx, algorithm),
+    )
+    return {
+        "ok": True,
+        "hash": job_hash,
+        "status": "done",
+        "name": _input_name(data, job_hash),
+        "date": data.get("date"),
+        "algorithm": algorithm,
+        "algorithm_description": data.get("algorithm_description"),
+        "output_format": data.get("output_format"),
+        "files": files,
+        "file_count": len(files),
+        "roles": [item["role"] for item in files],
+        "all_outputs_preserved": True,
+    }
 
 
 @app.get("/api/mvsep/result/{job_hash}")
@@ -287,6 +429,8 @@ async def karaoke_result(job_hash: str) -> dict[str, Any]:
     return {
         "ok": True,
         "hash": job_hash,
+        "name": _input_name(data, job_hash),
+        "date": data.get("date"),
         "algorithm": data.get("algorithm"),
         "algorithm_description": data.get("algorithm_description"),
         "model_name": "BS Roformer — MVSep Team",
@@ -322,6 +466,8 @@ async def crowd_result(job_hash: str) -> dict[str, Any]:
     return {
         "ok": True,
         "hash": job_hash,
+        "name": _input_name(data, job_hash),
+        "date": data.get("date"),
         "algorithm": data.get("algorithm"),
         "algorithm_description": data.get("algorithm_description"),
         "model_name": "BS Roformer — Crowd Removal",
